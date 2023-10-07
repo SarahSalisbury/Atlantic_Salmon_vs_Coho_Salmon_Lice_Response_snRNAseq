@@ -1,0 +1,198 @@
+---
+title: "Genes vs Cell Types Dotplot Atlantic Salmon"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen=999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+```
+
+## Load Data
+```{r}
+# Load Seurat Data
+AS.integrated <- readRDS("../../ATLANTIC_SALMON/4_Filter1_Incorporate_Immune_Cell_Substructuring/AS.integrated_filter1_subset.rds")
+```
+
+## Set Default Assay
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data
+# https://github.com/satijalab/seurat/issues/1534
+# https://satijalab.org/seurat/articles/integration_introduction.html
+DefaultAssay(AS.integrated) <- "SCT"
+```
+
+```{r set clusters}
+# Set identity classes to an existing column in meta data
+Idents(object = AS.integrated) <- "SUBCLUSTER_MERGED" # the column where we broke down immune and cluster 12 cells
+```
+### Set Cluster IDs
+```{r rename clusters for AS}
+#https://satijalab.org/seurat/articles/pbmc3k_tutorial.html
+new.cluster.ids.AS <- c("1" = "Fibroblasts (1)",
+                     "2" = "Intermediate Keratinocytes",
+                     "3" = "Basal Keratinocytes",
+                     "5" = "Secretory",
+                     "6" = "Mucous", 
+                     "7" = "Osteoblasts",
+                     "8" = "Endothelial",
+                     "9" = "Glial (1)",
+                     "10" = "Suprabasal Keratinocytes",
+                     "11" = "Red Blood Cells",
+                     "12" = "Neuronal (1)",
+                     "13" = "Neural Crest Cells",
+                     "14" = "Fibroblasts (2)",
+                     "16" = "Undifferentiated",
+                     "17" = "Glial (2)",
+                     "18" = "Muscle",
+                     "20" = "Neuronal (2)",
+                     "Dendritic_cells_5" = "Dendritic Cells",
+                     "Myeloid" = "Macrophages",
+                     "T_cells" = "T Cells",
+                     "B_cells_10" = "B Cells",
+                     "Neutrophil_cells_7" = "Neutrophils",
+                     "Monocyte_11" = "Monocyte"
+                     )
+
+order_plots_AS <- c("T Cells",
+                               "B Cells",
+                               "Dendritic Cells",
+                               "Neutrophils",
+                               "Macrophages",
+                               "Monocyte",
+                               "Suprabasal Keratinocytes",
+                               "Intermediate Keratinocytes",
+                               "Basal Keratinocytes",
+                               "Fibroblasts (1)",
+                               "Fibroblasts (2)",
+                               "Endothelial", 
+                               "Secretory",
+                               "Mucous",
+                               "Osteoblasts",
+                               "Red Blood Cells",
+                               "Muscle",
+                               "Neural Crest Cells",
+                               "Neuronal (1)",
+                               "Neuronal (2)",
+                               "Glial (1)",
+                               "Glial (2)",
+                               "Undifferentiated")
+
+#https://github.com/satijalab/seurat/issues/3500
+AS.integrated <- RenameIdents(AS.integrated, new.cluster.ids.AS)
+AS.integrated$CellTypeNames <- Idents(AS.integrated) # save in metadata
+
+# Don't want to remake factor according to: https://github.com/satijalab/seurat/issues/3500
+#orders your cell type names by the order you specified in order_plots
+levels(AS.integrated) <- order_plots_AS # note this is ok to do for a Seurat object but not ok for levels in a factor in a column! As the latter will rename all your levels !!!
+```
+
+```{r}
+features_AS = rev(c(
+"tbc1d10c",
+"BCL11B.1",
+"BCL11B",
+"tcf7",
+"SKAP1",
+"cd3e",
+"gene:ENSSSAG00000079711", #CD2
+"EBF1",
+"ebf1",
+"SWAP70.1",
+"cd79a",
+"flt3",
+"FLT3",
+"blnk",,
+"csf3r.1",
+"mmp9",
+"mmp13",
+"sema4ab.1",
+"CSF1R.2",
+"CSF1R",
+"MARCO",
+"ckb",
+"mitfa",
+"evpla",
+"ppl",
+"elovl6",
+"ass1",
+"pof1b.1",
+"ITGA6",
+"lamb4",
+"fbn2b",
+"COL12A1",
+"lamc1",
+"COL6A6",
+"egfl7",
+"TIE1",
+"flt4",
+"pcdh11",
+"gene:ENSSSAG00000084911", #avil
+"pou2f3.1",
+"gene:ENSSSAG00000039610", #prox1a
+"fer1l4",
+"SPDEF.3",
+"p2rx1",
+"gene:ENSSSAG00000055014", #muc5b
+"panx3",
+"itga10",
+"fgfr4",
+"HBB1",
+"casq1b.1",
+"tnni2a.1.1",
+"TTN",
+"TTN.1",
+"ltk",
+"mlphb",
+"pnp4a",
+"FHL2",
+"alx4b",
+"nwd1",
+"cntn4.1",
+"SAMD12.1",
+"gene:ENSSSAG00000038884", #il10rb
+"abcg1",
+"WDR49",
+"gene:ENSSSAG00000006052",
+"col4a1"
+)
+)
+
+ASplot<- DotPlot(AS.integrated, features = features_AS, assay = "SCT",  cols = c("white", "black")) +
+  theme(axis.text.x = element_text(angle = 90, hjust=1))+
+  guides(colour = guide_colorbar(order = 1, title = "Average Expression"), #https://stackoverflow.com/questions/11393123/controlling-ggplot2-legend-display-order
+              size = guide_legend(order = 2, title = "Percent Expressed"))+
+  labs(y = NULL,
+       x = NULL) +
+   RotatedAxis()+coord_flip()
+
+# Plot
+pdf("ASmarkersextra.pdf", width=10, height=14, useDingbats = FALSE)
+ASplot
+dev.off()
+```

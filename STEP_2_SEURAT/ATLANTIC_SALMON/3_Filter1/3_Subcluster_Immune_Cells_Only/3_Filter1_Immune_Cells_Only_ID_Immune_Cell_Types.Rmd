@@ -1,0 +1,138 @@
+---
+title: "Filter1 Immune Cells Only ID Immune Cell Types"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen = 999)
+#set seed for reproducibility
+set.seed(42)
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(patchwork)
+```
+
+### Load the Seurat object
+```{r load Seurat object}
+AS.integrated <- readRDS("AS.integrated_filter1_immune.rds")
+```
+
+### Set Default Assay
+
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data
+# https://github.com/satijalab/seurat/issues/1534
+# https://satijalab.org/seurat/articles/integration_introduction.html
+DefaultAssay(AS.integrated) <- "SCT"
+```
+
+### See which cells are Dendritic, Neutrophils, Myeloid, T cells
+
+```{r Dotlot to determine cell types}
+#CD45 - ptprc - all immune
+FeaturePlot(AS.integrated, features = c("gene:ENSSSAG00000066666"))
+DotPlot(AS.integrated, features = c("gene:ENSSSAG00000066666"))
+# all cell types are immune
+
+#CD3 - all T cells
+FeaturePlot(AS.integrated, features = c("cd3e"))
+DotPlot(AS.integrated, features = c("cd3e"))
+# 0, 1, 2, 3, 5, 10 - are T cells
+
+#CD4 - T helper cells
+FeaturePlot(AS.integrated, features = c("cd4-1.1", "cd4-1"))
+DotPlot(AS.integrated, features = c("cd4-1.1", "cd4-1"))
+# 0 expresses CD4
+# 7 expresses another paralog of CD4
+
+# CD8 - cytotoxic T-cells
+FeaturePlot(AS.integrated, features = c("cd8a", "gene:ENSSSAG00000045680"))
+DotPlot(AS.integrated, features = c("cd8a", "gene:ENSSSAG00000045680"))
+# 0 and 1 express CD8
+
+#Ok so 
+# 0 is a T-cell and expresses SKAP1
+
+#1 is a T-cell but no defining features
+
+#2 is myeloid and expresses csf1r and marco
+
+#3 is myeloid and expresses qki
+
+#4 is a T-cell and expresses mef2aa
+
+#5 is DCs flt3
+
+#6 is T-cell and expresses tox2
+
+#7 is neutrophils and expresses mmp9 and mmp13
+
+#8 is T-cell expressing gata3
+
+#9 is myeloid expressing marco
+
+#10 is B cells expressing EBF1
+
+#11 is monocyte expressing ckb
+
+DotPlot(AS.integrated, features = c("SKAP1", "krt15.6", "CSF1R", "MARCO", "qkib", "mef2aa", "flt3", "tox2.1", "mmp9", "mmp13", "gata3", "EBF1", "ckb"))
+```
+
+### Get Cell Names for Each Cluster
+
+```{r Get lists of cells}
+# I'm going to get a list of cell IDs belonging to each cluster, so I can apply these new cell IDs to our UMAP with all samples
+
+# how many cells in each cell type?
+AS.integrated[[]] %>% group_by(integrated_snn_res.0.3) %>% count()
+
+new.cluster.ids <- c("0" = "T_cells_skap1_0",
+                 "1" = "T_cells_1",
+                 "2" = "Myeloid_csf1r_2",
+                 "3" = "Myeloid_qki_3", 
+                 "4" = "T_cells_mef2aa_4",
+                 "5" = "Dendritic_cells_5",
+                 "6" = "T_cells_tox2_6",
+                 "7" = "Neutrophil_cells_7",
+                 "8" = "T_cells_gata3_8",
+                 "9" = "Myeloid_csf1r_9",
+                 "10" = "B_cells_10",
+                 "11" = "Monocyte_11"
+)
+#https://github.com/satijalab/seurat/issues/3500
+AS.integrated <- RenameIdents(AS.integrated, new.cluster.ids)
+AS.integrated$CellTypeNames <- Idents(AS.integrated) # save in metadata
+
+df_new_names <- AS.integrated[[]] %>% select(CellTypeNames) # make dataframe with just new cell type names and cell ids as rownames
+df_new_names <- cbind(rownames(df_new_names), data.frame(df_new_names, row.names=NULL)) # set rownames to column https://stackoverflow.com/questions/29511215/convert-row-names-into-first-column
+names(df_new_names)[1] <- "Cell" # set first column name to "Cell"
+
+#write out list
+write.csv(df_new_names, "List_immune_IDs.csv")
+```
+
+
+```{r session info}
+sessionInfo()
+```

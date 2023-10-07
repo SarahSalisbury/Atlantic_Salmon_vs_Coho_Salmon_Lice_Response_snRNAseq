@@ -1,0 +1,87 @@
+---
+title: "Filter2 Cluster12 Only ID Cell Types"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen = 999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(patchwork)
+```
+
+### Load the Seurat object
+```{r load Seurat object}
+CO.integrated <- readRDS("CO.integrated_filter2_12only.rds")
+```
+
+### Set Default Assay
+
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data
+# https://github.com/satijalab/seurat/issues/1534
+# https://satijalab.org/seurat/articles/integration_introduction.html
+DefaultAssay(CO.integrated) <- "SCT"
+```
+
+### See which cells are muscle and which are iridophores
+
+```{r Dotlot to determine cell types}
+DotPlot(CO.integrated, features = c("neb.1", "ltk", "mlphb"))
+
+# ok so ltk and mlphb are in cluster 1 - iridophores
+# neb.1 is in cluster 0 - skeletal muscle
+```
+
+### Get Cell Names for Each Cluster
+
+```{r Get lists of cells}
+# I'm going to get a list of cell IDs belonging to each cluster, so I can apply these new cell IDs to our UMAP with all samples
+
+# how many cells in each cell type?
+CO.integrated[[]] %>% group_by(integrated_snn_res.0.02) %>% count()
+
+#Get muscle cells
+muscle_cells <- CO.integrated[[]] %>% filter(integrated_snn_res.0.02 == 0) %>% rownames()
+
+length(muscle_cells)
+
+#write out list
+write.csv(muscle_cells, "List_muscle_cell_IDs.csv")
+
+#Get ltk+ cells
+ltk_cells <- CO.integrated[[]] %>% filter(integrated_snn_res.0.02 == 1) %>% rownames()
+
+length(ltk_cells)
+
+#write out list
+write.csv(ltk_cells, "List_ltk_cell_IDs.csv")
+```
+
+
+```{r session info}
+sessionInfo()
+```

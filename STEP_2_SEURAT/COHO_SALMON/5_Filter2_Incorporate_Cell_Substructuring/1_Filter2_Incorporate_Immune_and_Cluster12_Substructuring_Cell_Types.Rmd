@@ -1,0 +1,145 @@
+---
+title: "Filter2 Incorporate Immune and Cluster12 Substructuring Cell Types"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen = 999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(patchwork)
+```
+
+### Load the Seurat object
+```{r load Seurat object}
+CO.integrated <- readRDS("../CO.integrated_filter2.rds")
+```
+
+### Set Default Assay
+
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data
+# https://github.com/satijalab/seurat/issues/1534
+# https://satijalab.org/seurat/articles/integration_introduction.html
+DefaultAssay(CO.integrated) <- "SCT"
+```
+
+### Load up lists with new cluster allocations
+
+```{r load up lists with new cluster allocations}
+immune_names <- read.csv("../immuneonly20PCshigherlowres/List_immune_IDs.csv", stringsAsFactors = F, colClasses=c("NULL",NA,NA)) # delete first column and keep next two
+#https://stackoverflow.com/questions/14527466/is-there-a-way-to-omit-the-first-column-when-reading-a$
+
+muscle_cells <- read.csv('../12onlylowerres/List_muscle_cell_IDs.csv', stringsAsFactors = F, colClasses=c("NULL",NA)) #https://stackoverflow.com/questions/14527466/is-there-a-way-to-omit-the-first-column-when-reading-a-csv
+muscle_cells <- muscle_cells[[1]] # take first column
+
+ltk_cells <- read.csv('../12onlylowerres/List_ltk_cell_IDs.csv', stringsAsFactors = F, colClasses=c("NULL",NA)) #https://stackoverflow.com/questions/14527466/is-there-a-way-to-omit-the-first-column-when-reading-a-csv
+ltk_cells <- ltk_cells[[1]] # take first column
+
+```
+
+### Change clusters
+
+```{r allocate new clusters}
+# Make a column with all the cell barcodes (stored as rownames)
+CO.integrated$barcode <- rownames(CO.integrated@meta.data)
+
+# Now make a column with the row number of the metadata (need this to sort later)
+CO.integrated$row  <- 1:nrow(CO.integrated@meta.data)
+
+#IMMUNE CELLS
+
+# Merge the metadata with the dataframe with the new cluster names for the immune cells, join by barcode column in the metadata and by Cell column in the immune names data file, keep all barcodes in both files (all=T)
+Immune_column_generation_df <- merge(CO.integrated@meta.data, immune_names, by.x="barcode", by.y="Cell", all=T)
+
+#Now order the resulting merged file by the row column we made earlier (this makes sure that the order of the barcodes is consistent between this file and the original metadata so we can just add the clustering info nicely to the end of the original metadata in our Seurat object)
+Immune_column_generation_df <- Immune_column_generation_df[order(Immune_column_generation_df$row), ]
+
+# Make a new column in the metadata that contains the immune clustering info, note that for cells that are not immune, they are given a <NA> value in this column
+CO.integrated$IMMUNE_SUBCLUSTER <- Immune_column_generation_df$CellTypeNames
+
+# Save a column in original SO metadata with the original identities for all cell types
+CO.integrated$ORIGINAL_IDENTS <- CO.integrated$integrated_snn_res.0.2
+# How many cells for each of these original identities?
+CO.integrated@meta.data %>% count(ORIGINAL_IDENTS)
+
+#Now make a new column where we set the original identities for all cell types to a character
+CO.integrated$ORIGINAL_IDENTS_CHARACTER <- as.character(CO.integrated$ORIGINAL_IDENTS)
+
+# Now we're going to make a new column "SUBCLUSTER" which if the barcode is in our list of immune cells, then we will assign it the value in the IMMUNE_SUBCLUSTER column, otherwise we give it the value in the CLUSTER_SUBSET_CHARACTER column (with the original identities)
+CO.integrated@meta.data <- CO.integrated@meta.data %>% mutate(SUBCLUSTER = ifelse((CO.integrated$barcode %in% immune_names$Cell), IMMUNE_SUBCLUSTER, ORIGINAL_IDENTS_CHARACTER))
+
+
+library(dplyr)
+library(stringr)
+
+# ok so I just want to keep all of the T-cells together and all of the Myeloid together in another column because we're going to run differential expression between all T-cells across time points and between all myeloid across time points
+#SOURCE for mutate: https://stackoverflow.com/questions/39903376/if-column-contains-string-then-enter-value-for-that-row
+
+#EXPLANATION: basically we're taking our metadata and making a new column SUBCLUSTER_MERGE, and when "T_cells" is detected in the SUBCLUSTER column we give the row a value of "T_cells", but when not detected we keep the original value from the SUBCLUSTER column. I know it's weird that you have TRUE next to SUBCLUSTER because shouldn't it be false? but it seems to work this way.
+CO.integrated@meta.data <- CO.integrated@meta.data %>% mutate(SUBCLUSTER_MERGED = case_when(str_detect(SUBCLUSTER, "T_cells") ~ "T_cells", TRUE ~ SUBCLUSTER))
+
+
+#EXPLANATION: then we mutate our newly generated SUBCLUSTER_MERGED column and look for cells which contain "Myeloid" and change the value to "Myeloid", else keeping the original value in the SUBCLUSTER_MERGED column.
+CO.integrated@meta.data <- CO.integrated@meta.data %>% mutate(SUBCLUSTER_MERGED = case_when(str_detect(SUBCLUSTER_MERGED, "Myeloid") ~ "Myeloid", TRUE ~ SUBCLUSTER_MERGED))
+#GREAT JOB!!!!!
+
+# 12 - ltk and muscle cells
+
+## Mutate the SUBCLUSTER column to include ltk and muscle data
+CO.integrated@meta.data <- CO.integrated@meta.data %>%
+  mutate(SUBCLUSTER = ifelse((CO.integrated$barcode %in% muscle_cells), "Muscle_cells",
+				ifelse((CO.integrated$barcode %in% ltk_cells), "Ltk_cells",
+                                              SUBCLUSTER)))
+
+## Mutate the SUBCLUSTER_MERGED column to include ltk and muscle data
+CO.integrated@meta.data <- CO.integrated@meta.data %>%
+  mutate(SUBCLUSTER_MERGED = ifelse((CO.integrated$barcode %in% muscle_cells), "Muscle_cells",
+                                ifelse((CO.integrated$barcode %in% ltk_cells), "Ltk_cells",
+                                              SUBCLUSTER_MERGED)))
+
+#Ok now make sure the number per cell type is ok:
+CO.integrated@meta.data %>% count(SUBCLUSTER)
+```
+
+```{r save rds}
+#You can save the object at this point so that it can easily be loaded back in without having to rerun the computationally intensive steps performed above, or easily shared with collaborators.
+saveRDS(CO.integrated, file = "CO.integrated_filter2_subset.rds")
+```
+
+```{r Make Rough UMAP}
+levels(x = CO.integrated)
+
+# Set identity classes to an existing column in meta data
+Idents(object = CO.integrated) <- "SUBCLUSTER"
+levels(x = CO.integrated)
+
+DimPlot(CO.integrated)
+```
+
+```{r session info}
+sessionInfo()
+```

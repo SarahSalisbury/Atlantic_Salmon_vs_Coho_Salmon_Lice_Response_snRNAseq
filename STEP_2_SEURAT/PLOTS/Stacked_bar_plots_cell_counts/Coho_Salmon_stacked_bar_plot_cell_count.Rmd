@@ -1,0 +1,250 @@
+---
+title: "Coho Salmon Stacked Bat Plot Cell Count"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen = 999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Packages
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(chisq.posthoc.test)
+```
+
+### Load the Seurat object
+```{r load Seurat object}
+CO.integrated <- readRDS("../../COHO_SALMON/5_Filter2_Incorporate_Cell_Substructuring/CO.integrated_filter2_subset.rds")
+```
+
+## Format Data
+
+### Set Assay
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data: https://satijalab.org/seurat/articles/sctransform_v2_vignette.html#perform-integration-using-pearson-residuals-1
+DefaultAssay(CO.integrated) <- "SCT"
+```
+
+### Set Clusters
+```{r set clusters}
+# Set identity classes to an existing column in meta data
+Idents(object = CO.integrated) <- "SUBCLUSTER_MERGED" # the column where we broke down immune and cluster 12 cells
+```
+
+### Set Cluster IDs
+```{r rename clusters for CO}
+#https://satijalab.org/seurat/articles/pbmc3k_tutorial.html
+new.cluster.ids.CO <- c("0" = "Intermediate_Keratinocytes",
+                 "1" = "Basal_Keratinocytes",
+                 "2" = "Fibroblast_1",
+                 "3" = "Keratinocyte_Suprabasal", 
+                 "4" = "Secretory", 
+                 "7" = "Endothelial", 
+                 "8" = "Mucous_1", 
+                 "9" = "Glial", 
+                 "10" = "Red_Blood_Cell", 
+                 "11" = "Mucous_2", 
+                 "Muscle_cells" = "Muscle_cells", 
+                 "Ltk_cells" = "Ltk_cells", 
+                 "13" = "Neuronal_1",
+                 "14" = "Osteoblasts", 
+                 "15" = "Neuronal_2", 
+                 "16" = "Neuronal_3", 
+                 "17" = "Integument",
+                 "Dendritic_cells_5" = "Dendritic_cells",
+                 "Myeloid" = "Myeloid",
+                 "T_cells" = "T_cells",
+                 "B_cells_10" = "B_cells",
+                 "Neutrophil_cells_3" = "Neutrophil_cells",
+                 "Monocyte_9" = "Monocyte")
+#https://github.com/satijalab/seurat/issues/3500
+CO.integrated <- RenameIdents(CO.integrated, new.cluster.ids.CO)
+CO.integrated$CellTypeNames <- Idents(CO.integrated) # save in metadata
+```
+```{r set time ids for CO}
+#Next I need to assign samples to timepoints.
+CO.integrated$TIME <- ifelse(CO.integrated$orig.ident == "CO_TA_PV_45", "TA",
+                      ifelse(CO.integrated$orig.ident == "CO_TA_skin", "TA",
+                      ifelse(CO.integrated$orig.ident == "CO_TB_PV", "TB",
+                      ifelse(CO.integrated$orig.ident == "CO_TB_skin", "TB",
+                      ifelse(CO.integrated$orig.ident == "CO_TC_PV", "TC",
+                      ifelse(CO.integrated$orig.ident == "CO_TC_skin", "TC",
+                      ifelse(CO.integrated$orig.ident == "CO_TD_PV", "TD",
+                      ifelse(CO.integrated$orig.ident == "CO_TD_skin", "TD",
+                      ifelse(CO.integrated$orig.ident == "CO_TE_PV", "TE",
+                      ifelse(CO.integrated$orig.ident == "CO_TE_skin", "TE",
+                      ifelse(CO.integrated$orig.ident == "CO_TX_PV_44", "TX",
+                      ifelse(CO.integrated$orig.ident == "CO_TX_skin", "TX",
+                      "ERROR"))))))))))))
+```
+
+```{r set tissue ids for CO}
+#Next I need to assign samples to timepoints.
+CO.integrated$TISSUE <- ifelse(CO.integrated$orig.ident == "CO_TA_PV_45", "PV",
+                      ifelse(CO.integrated$orig.ident == "CO_TA_skin", "skin",
+                      ifelse(CO.integrated$orig.ident == "CO_TB_PV", "PV",
+                      ifelse(CO.integrated$orig.ident == "CO_TB_skin", "skin",
+                      ifelse(CO.integrated$orig.ident == "CO_TC_PV", "PV",
+                      ifelse(CO.integrated$orig.ident == "CO_TC_skin", "skin",
+                      ifelse(CO.integrated$orig.ident == "CO_TD_PV", "PV",
+                      ifelse(CO.integrated$orig.ident == "CO_TD_skin", "skin",
+                      ifelse(CO.integrated$orig.ident == "CO_TE_PV", "PV",
+                      ifelse(CO.integrated$orig.ident == "CO_TE_skin", "skin",
+                      ifelse(CO.integrated$orig.ident == "CO_TX_PV_44", "PV",
+                      ifelse(CO.integrated$orig.ident == "CO_TX_skin", "skin",
+                      "ERROR"))))))))))))
+```
+
+### Set Plot Labels
+```{r set plot labels for CO}
+cluster.id.plot.labels.CO <- c("Intermediate_Keratinocytes" = "Intermediate Keratinocytes",
+                 "Basal_Keratinocytes" = "Basal Keratinocytes",
+                 "Fibroblast_1" = "Fibroblasts (1)",
+                 "Keratinocyte_Suprabasal" = "Suprabasal Keratinocytes",
+                 "Secretory" = "Secretory", 
+                 "Endothelial" = "Endothelial", 
+                 "Mucous_1" = "Mucous (1)", 
+                 "Glial" = "Glial", 
+                 "Red_Blood_Cell" = "Red Blood Cells", 
+                 "Mucous_2" = "Mucous (2)", 
+                 "Muscle_cells" = "Muscle", 
+                 "Ltk_cells" = "Neural Crest Cells", 
+                 "Neuronal_1" = "Neuronal (1)",
+                 "Osteoblasts" = "Osteoblasts", 
+                 "Neuronal_2" = "Neuronal (2)", 
+                 "Neuronal_3" = "Neuronal (3)", 
+                 "Integument" = "Integument",
+                 "Dendritic_cells" = "Dendritic Cells",
+                 "Myeloid" = "Macrophages",
+                 "T_cells" = "T Cells",
+                 "B_cells" = "B Cells",
+                 "Neutrophil_cells" = "Neutrophils",
+                 "Monocyte" = "Monocyte")
+```
+
+```{r}
+# specify colours for each sample
+sample.colors.CO <- c(CO_TX_skin = "#3333FF",
+                   CO_TA_skin = "#ffffb2",
+                   CO_TB_skin ="#fecc5c",
+                   CO_TC_skin = "#fd8d3c",
+                   CO_TD_skin = "#f03b20",
+                   CO_TE_skin = "#bd0026",
+                   CO_TX_PV_44 = "#33C8FF",
+                   CO_TA_PV_45 = "#F3F358",
+                   CO_TB_PV = "#DF9C00",
+                   CO_TC_PV = "#DB6B15",
+                   CO_TD_PV = "#E10000",
+                   CO_TE_PV = "#7C031B")
+
+#set orig.ident as a factor and order the levels how you want them in the plot: https://www.statology.org/ggplot-reorder-stacked-bars/
+CO.integrated@meta.data$orig.ident <- factor(CO.integrated@meta.data$orig.ident,
+                                             levels = c('CO_TE_PV',
+                                                      'CO_TE_skin',
+                                                      'CO_TD_PV',
+                                                      'CO_TD_skin',
+                                                      'CO_TC_PV',
+                                                      'CO_TC_skin',
+                                                      'CO_TB_PV',
+                                                      'CO_TB_skin',
+                                                      'CO_TA_PV_45',
+                                                      'CO_TA_skin',
+                                                      'CO_TX_PV_44',
+                                                      'CO_TX_skin'))
+
+order_plots_CO <-rev(c("T_cells",
+                "B_cells",
+                "Dendritic_cells",
+                "Neutrophil_cells",
+                "Myeloid",
+                "Monocyte",
+                "Keratinocyte_Suprabasal",
+                "Intermediate_Keratinocytes",
+                "Basal_Keratinocytes",
+                "Fibroblast_1",
+                "Endothelial",
+                "Secretory",
+                "Mucous_1",
+                "Mucous_2",
+                "Osteoblasts",
+                "Red_Blood_Cell",
+                "Muscle_cells",
+                "Ltk_cells",
+                "Integument",
+                "Neuronal_1",
+                "Neuronal_2",
+                "Neuronal_3",
+                "Glial"))
+
+# https://www.statology.org/ggplot-reorder-stacked-bars/
+#set order of cell types
+CO.integrated@meta.data$CellTypeNames <- factor(CO.integrated@meta.data$CellTypeNames, levels = order_plots_CO)
+
+#plot as proportion or percentage of cluster, https://stackoverflow.com/questions/51272689/ggplot2-how-to-change-the-order-of-a-legend
+cells_by_cluster_sample_proportion_plot_CO <- ggplot(CO.integrated@meta.data,
+                                                  aes(x = CellTypeNames, # x axis = cell clusters
+                                                      fill = orig.ident)) + # fill color based on sample
+  geom_bar() + # make barplot
+  theme_bw() + # black and white theme
+  coord_flip() + # flip x and y axis
+  scale_fill_manual(breaks = c('CO_TX_skin', # specify order you want the samples to be displayed within the bars
+                             'CO_TX_PV_44',
+                             'CO_TA_skin',
+                             'CO_TA_PV_45',
+                             'CO_TB_skin',
+                             'CO_TB_PV',
+                             'CO_TC_skin',
+                             'CO_TC_PV',
+                             'CO_TD_skin',
+                             'CO_TD_PV',
+                             'CO_TE_skin',
+                             'CO_TE_PV'),
+                      values = sample.colors.CO, # specify colours
+                    name = "Sample", # label legend
+                    labels=c("Control Skin",
+                             "Control Fin",
+                             "12h Skin",
+                             "12h Fin",
+                             "24h Skin",
+                             "24h Fin",
+                             "36h Skin",
+                             "36h Fin",
+                             "48h Skin",
+                             "48h Fin",
+                             "60h Skin",
+                             "60h Fin")
+                    ) + # fix names in legend 
+  theme(axis.title.x = element_blank(), # remove x axis title
+        #axis.text.x = element_blank(), # remove x axis label
+        axis.title.y = element_blank(), # remove y axis title
+        axis.ticks.x = element_blank()) + # remove x axis ticks
+  #xlab("Putative Cell Types") + # label X axis
+  scale_x_discrete(position = "top", labels = cluster.id.plot.labels.CO) + # make nice labels
+  theme(plot.margin = unit(c(0, 0, 0, 0), "cm")) +
+  ylim(0, 17000)
+
+#Great now save this plot
+pdf("cells_by_cluster_sample_bar_plot_CO.pdf", width = 11, height = 7.2)  # ok I forgot to set dingbats but probably find since barplot
+cells_by_cluster_sample_proportion_plot_CO
+dev.off()
+```

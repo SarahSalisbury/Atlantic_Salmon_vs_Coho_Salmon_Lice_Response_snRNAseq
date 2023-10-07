@@ -1,0 +1,431 @@
+---
+title: "Timepoints vs Cell Types Dotplot - Multiple Cell Types"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen=999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(patchwork)
+```
+
+## Load Data
+```{r}
+# Load Seurat Data
+CO.integrated <- readRDS("../../COHO_SALMON/5_Filter2_Incorporate_Cell_Substructuring/CO.integrated_filter2_subset.rds")
+AS.integrated <- readRDS("../../ATLANTIC_SALMON/4_Filter1_Incorporate_Immune_Cell_Substructuring/AS.integrated_filter1_subset.rds")
+```
+
+## Set Default Assay
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data
+# https://github.com/satijalab/seurat/issues/1534
+# https://satijalab.org/seurat/articles/integration_introduction.html
+DefaultAssay(CO.integrated) <- "SCT"
+DefaultAssay(AS.integrated) <- "SCT"
+```
+
+```{r set clusters}
+# Set identity classes to an existing column in meta data
+Idents(object = CO.integrated) <- "SUBCLUSTER_MERGED" # the column where we broke down immune and cluster 12 cells
+Idents(object = AS.integrated) <- "SUBCLUSTER_MERGED" # the column where we broke down immune and cluster 12 cells
+```
+
+```{r}
+#https://divingintogeneticsandgenomics.rbind.io/post/enhancement-of-scrnaseq-heatmap-using-complexheatmap/
+CO.integrated$TIME <- ifelse(CO.integrated$orig.ident == "CO_TA_PV_45", "TA",
+                      ifelse(CO.integrated$orig.ident == "CO_TA_skin", "TA",
+                      ifelse(CO.integrated$orig.ident == "CO_TB_PV", "TB",
+                      ifelse(CO.integrated$orig.ident == "CO_TB_skin", "TB",
+                      ifelse(CO.integrated$orig.ident == "CO_TC_PV", "TC",
+                      ifelse(CO.integrated$orig.ident == "CO_TC_skin", "TC",
+                      ifelse(CO.integrated$orig.ident == "CO_TD_PV", "TD",
+                      ifelse(CO.integrated$orig.ident == "CO_TD_skin", "TD",
+                      ifelse(CO.integrated$orig.ident == "CO_TE_PV", "TE",
+                      ifelse(CO.integrated$orig.ident == "CO_TE_skin", "TE",
+                      ifelse(CO.integrated$orig.ident == "CO_TX_PV_44", "TX",
+                      ifelse(CO.integrated$orig.ident == "CO_TX_skin", "TX",
+                      "ERROR"))))))))))))
+
+#Make new metadata column with cluster_sample
+CO.integrated$celltypebytimepoint <- paste(Idents(CO.integrated), CO.integrated$TIME, sep = "_")
+
+#Make new metadata column to store Idents (currently cluster #)
+CO.integrated$celltype <- Idents(CO.integrated)
+
+#Make the cluster_sample column your new Idents
+Idents(CO.integrated) <- "celltypebytimepoint"
+```
+
+```{r}
+#https://divingintogeneticsandgenomics.rbind.io/post/enhancement-of-scrnaseq-heatmap-using-complexheatmap/
+#Next I need to assign samples to timepoints.
+AS.integrated$TIME <- ifelse(AS.integrated$orig.ident == "AS_TX_skin","TX",
+                      ifelse(AS.integrated$orig.ident == "AS_TA_skin", "TA",
+                      ifelse(AS.integrated$orig.ident == "AS_TB_skin", "TB",
+                      ifelse(AS.integrated$orig.ident == "AS_TC_skin", "TC",
+                      ifelse(AS.integrated$orig.ident == "AS_TD_skin", "TD",
+                      ifelse(AS.integrated$orig.ident == "AS_TE_skin", "TE",
+                      ifelse(AS.integrated$orig.ident == "AS_TX_PV", "TX",
+                      ifelse(AS.integrated$orig.ident == "AS_TC_PV", "TC",
+                      ifelse(AS.integrated$orig.ident == "AS_TD_PV", "TD",
+                      ifelse(AS.integrated$orig.ident == "AS_TE_PV", "TE", "ERROR"))))))))))
+
+#Make new metadata column with cluster_sample
+AS.integrated$celltypebytimepoint <- paste(Idents(AS.integrated), AS.integrated$TIME, sep = "_")
+
+#Make new metadata column to store Idents (currently cluster #)
+AS.integrated$celltype <- Idents(AS.integrated)
+
+#Make the cluster_sample column your new Idents
+Idents(AS.integrated) <- "celltypebytimepoint"
+```
+
+```{r}
+ASnames <- read.csv(file ="../../ATLANTIC_SALMON/FEATUREEnsembltosymbolAS.csv")
+COnames <- read.csv(file ="../../COHO_SALMON/FEATUREEnsembltosymbolCO.csv")
+```
+
+```{r}
+#From: https://divingintogeneticsandgenomics.rbind.io/post/clustered-dotplot-for-single-cell-rnaseq/
+
+library(ComplexHeatmap)
+library(circlize)
+library(tidyr)
+library(viridis)
+library(Polychrome)
+
+# any value that is greater than 2 will be mapped to red
+    #col_fun = circlize::colorRamp2(c(-1, 0, 2), viridis(20)[c(1,10, 20)])
+col_fun = colorRamp2(c(-1, 0, 4), c("blue", "white", "red"))
+
+lgd_list = list(
+      Legend( labels = c(0,0.25,0.5,0.75,1), title = "pt",
+              graphics = list(
+                function(x, y, w, h) grid.circle(x = x, y = y, r = 0 * unit(2, "mm"),
+                                                 gp = gpar(fill = "black")),
+                function(x, y, w, h) grid.circle(x = x, y = y, r = 0.25 * unit(2, "mm"),
+                                                 gp = gpar(fill = "black")),
+                function(x, y, w, h) grid.circle(x = x, y = y, r = 0.5 * unit(2, "mm"),
+                                                 gp = gpar(fill = "black")),
+                function(x, y, w, h) grid.circle(x = x, y = y, r = 0.75 * unit(2, "mm"),
+                                                 gp = gpar(fill = "black")),
+                function(x, y, w, h) grid.circle(x = x, y = y, r = 1 * unit(2, "mm"),
+                                                 gp = gpar(fill = "black")))
+            ))
+```
+
+```{r}
+order_time_CO <- c("TE", "TD", "TC", "TB", "TA", "TX")
+
+new.cluster.ids_CO <- c("0" = "Intermediate Keratinocytes",
+                 "1" = "Basal Keratinocytes",
+                 "2" = "Fibroblasts (1)",
+                 "3" = "Suprabasal Keratinocytes",
+                 "4" = "Secretory", 
+                 "7" = "Endothelial", 
+                 "8" = "Mucous (1)", 
+                 "9" = "Glial", 
+                 "10" = "Red Blood Cells", 
+                 "11" = "Mucous (2)", 
+                 "Muscle_cells" = "Muscle", 
+                 "Ltk_cells" = "Neural Crest Cells", 
+                 "13" = "Neuronal (1)",
+                 "14" = "Osteoblasts", 
+                 "15" = "Neuronal (2)", 
+                 "16" = "Neuronal (3)", 
+                 "17" = "Integument",
+                 "Dendritic_cells_5" = "Dendritic Cells",
+                 "Myeloid" = "Macrophages",
+                 "T_cells" = "T Cells",
+                 "B_cells_10" = "B Cells",
+                 "Neutrophil_cells_3" = "Neutrophils",
+                 "Monocyte_9" = "Monocyte")
+
+order_cells_CO <- c("T_cells",
+                    "B_cells_10",
+                    "Dendritic_cells_5",
+                    "Neutrophil_cells_3",
+                    "Myeloid",
+                    "Monocyte_9",
+                    "3",
+                    "0",
+                    "1",
+                    "2",
+                    "7",
+                    "4",
+                    "8",
+                    "11",
+                    "14",
+                    "10",
+                    "Muscle_cells",
+                    "Ltk_cells",
+                    "17",
+                    "13",
+                    "15",
+                    "16",
+                    "9"
+                    )
+
+Dotplot_CO<- function(genetoplot, listofcelltypes) {
+  #Get data
+  
+    #make dotplot
+    plots_dotplot_time <- DotPlot(CO.integrated, features = genetoplot, assay = "SCT") + RotatedAxis()
+    
+    #now get data from dotplot
+    df <- plots_dotplot_time$data
+    
+   #https://divingintogeneticsandgenomics.rbind.io/post/clustered-dotplot-for-single-cell-rnaseq/
+    # now we need to extract the time and cell type from the id column
+    #delete everything before "_" in id column to get the time, and it seems like it just takes everything before the last "_"
+    df$time <- gsub(".*_","",df$id)
+    #delete everything after "_" in id column to get the cell type
+    df$cell <- gsub("_[^_]+$", "", df$id)
+    #https://stackoverflow.com/questions/44687333/remove-characters-after-the-last-occurrence-of-a-specific-character
+    # ok so when you have [] in a regulat expression, you're saying, look for any character in those brackets EXCEPT if the first character is a ^, then you're saying look for any character that is NOT in the brackets. SO here what we're doing is saying: look for a "_" followed by any characters (+) that are not "_" ([^_]) until you get to the end of the line ($). https://stat.ethz.ch/R-manual/R-devel/library/base/html/regex.html
+
+    # look up the code for your nice cell type name
+    codelistofcelltypes <- names(new.cluster.ids_CO[new.cluster.ids_CO %in% listofcelltypes])
+    
+    #now subset to just the cells you want
+    df <- df[df$cell %in%  codelistofcelltypes, ]
+    
+    #get rid of rownames
+    rownames(df) <- NULL
+
+    #the matrix for the scaled expression 
+    exp_mat <- df %>%  # take df
+      select(time, cell, avg.exp.scaled) %>% # select time, cell type and average expression data
+      pivot_wider(names_from = cell, values_from = avg.exp.scaled) %>% # make table with cell types as columns, populate with average expression (rows will be times)
+      as.data.frame() # make dataframe
+
+    row.names(exp_mat) <- exp_mat$time  # make times the row names
+    exp_mat <- exp_mat[,-1] %>% as.matrix() #delete first column (time column)
+    exp_mat <- t(exp_mat)
+
+    #the matrix for the percentage of cells express a gene
+    percent_mat <- df %>%  # take df
+      select(time, cell, pct.exp) %>% # select time, cell type and average expression data
+      pivot_wider(names_from = cell, values_from = pct.exp) %>% # make table with cell types as columns, populate with average expression (rows will be times)
+      as.data.frame() # make dataframe
+
+    row.names(percent_mat) <- percent_mat$time  # make times the row names
+    percent_mat <- percent_mat[,-1] %>% as.matrix() #delete first column (time column)
+    percent_mat <- t(percent_mat)
+
+  #plot
+    #https://divingintogeneticsandgenomics.rbind.io/post/clustered-dotplot-for-single-cell-rnaseq/
+
+    code_name <- COnames %>% filter(V2 == genetoplot) %>% select(V1) %>% pull()
+    code_name_nice <- gsub("gene:","", code_name)
+    ifelse(code_name == genetoplot,
+           title <- paste0("(",code_name_nice,")"),
+           title <- paste0(genetoplot,"\n(",code_name_nice,")")
+    )
+    
+    set.seed(123)    
+    hp<- Heatmap(exp_mat,
+                 heatmap_legend_param=list(title="expression"),
+                 column_title = title, 
+                 column_title_gp = gpar(fontsize = 8),
+                 col=col_fun,
+                 rect_gp = gpar(type = "none"),
+                 layer_fun = function(j, i, x, y, w, h, fill){
+                   grid.rect(x = x, y = y, width = w, height = h,
+                             gp = gpar(col = NA, fill = NA))
+                   grid.circle(x=x,y=y,r= pindex(percent_mat, i, j)/100 * unit(2, "mm"),
+                               gp = gpar(fill = col_fun(pindex(exp_mat, i, j)), col = NA))},
+                 row_names_gp = gpar(fontsize = 12),
+                 column_names_gp = gpar(fontsize = 12),
+                 border = "black",
+                 row_order = order_cells_CO[order_cells_CO %in% codelistofcelltypes],
+                 column_order = rev(order_time_CO),
+                 cluster_rows = FALSE,
+                 cluster_columns = FALSE,
+                 width = ncol(exp_mat)*unit(4, "mm"), 
+                 height = nrow(exp_mat)*unit(4, "mm"), #https://jokergoo.github.io/2020/05/11/set-cell-width/height-in-the-heatmap/
+                 column_labels = c("Control", "12h", "24h", "36h", "48h", "60h"), # please make sure this order matches the order of exp_mat$time - does not necessarily = order_time_CO, instead it seems to be the order the times are in your metadata, so always TX, TA, TB, TC, TD, TE!
+                 row_labels = new.cluster.ids_CO[rownames(exp_mat)],
+                 #https://jokergoo.github.io/ComplexHeatmap-reference/book/a-single-heatmap.html
+                 row_names_side = "left"
+                 ) 
+    nice_name <- gsub(":","",genetoplot)
+    nice_name <- gsub("/","",nice_name)
+    nice_name <- gsub("-","",nice_name)
+    hp
+}
+```
+
+```{r}
+order_time_AS <- c("TE", "TD", "TC", "TB", "TA", "TX")
+
+new.cluster.ids_AS <- c("1" = "Fibroblasts (1)",
+                     "2" = "Intermediate Keratinocytes",
+                     "3" = "Basal Keratinocytes",
+                     "5" = "Secretory",
+                     "6" = "Mucous", 
+                     "7" = "Osteoblasts",
+                     "8" = "Endothelial",
+                     "9" = "Glial (1)",
+                     "10" = "Suprabasal Keratinocytes",
+                     "11" = "Red Blood Cells",
+                     "12" =  "Neuronal (1)",
+                     "13" = "Neural Crest Cells",
+                     "14" = "Fibroblasts (2)",
+                     "16" = "Undifferentiated",
+                     "17" = "Glial (2)",
+                     "18" = "Muscle",
+                     "20" = "Neuronal (2)",
+                     "Dendritic_cells_5" = "Dendritic Cells",
+                     "Myeloid" = "Macrophages",
+                     "T_cells" = "T Cells",
+                     "B_cells_10" = "B Cells",
+                     "Neutrophil_cells_7" = "Neutrophils",
+                     "Monocyte_11" = "Monocyte"
+                     )
+
+order_cells_AS <- c("T_cells",
+                    "B_cells_10",
+                    "Dendritic_cells_5",
+                    "Neutrophil_cells_7",
+                    "Myeloid",
+                    "Monocyte_11",
+                    "10",
+                    "2",
+                    "3",
+                    "1",
+                    "14",
+                    "8",
+                    "5",
+                    "6",
+                    "7",
+                    "11",
+                    "18",
+                    "13",
+                    "12",
+                    "20",
+                    "9",
+                    "17",
+                    "16")
+
+Dotplot_AS<- function(genetoplot, listofcelltypes) {
+  #Get data
+  
+    #make dotplot
+    plots_dotplot_time <- DotPlot(AS.integrated, features = genetoplot, assay = "SCT") + RotatedAxis()
+    
+    #now get data from dotplot
+    df <- plots_dotplot_time$data
+    
+   #https://divingintogeneticsandgenomics.rbind.io/post/clustered-dotplot-for-single-cell-rnaseq/
+    # now we need to extract the time and cell type from the id column
+    #delete everything before "_" in id column to get the time, and it seems like it just takes everything before the last "_"
+    df$time <- gsub(".*_","",df$id)
+    #delete everything after "_" in id column to get the cell type
+    df$cell <- gsub("_[^_]+$", "", df$id)
+    #https://stackoverflow.com/questions/44687333/remove-characters-after-the-last-occurrence-of-a-specific-character
+    # ok so when you have [] in a regulat expression, you're saying, look for any character in those brackets EXCEPT if the first character is a ^, then you're saying look for any character that is NOT in the brackets. SO here what we're doing is saying: look for a "_" followed by any characters (+) that are not "_" ([^_]) until you get to the end of the line ($). https://stat.ethz.ch/R-manual/R-devel/library/base/html/regex.html
+
+    # look up the code for your nice cell type name
+    codelistofcelltypes <- names(new.cluster.ids_AS[new.cluster.ids_AS %in% listofcelltypes])
+    
+    #now subset to just the cells you want
+    df <- df[df$cell %in%  codelistofcelltypes, ]
+    
+    #get rid of rownames
+    rownames(df) <- NULL
+
+    #the matrix for the scaled expression 
+    exp_mat <- df %>%  # take df
+      select(time, cell, avg.exp.scaled) %>% # select time, cell type and average expression data
+      pivot_wider(names_from = cell, values_from = avg.exp.scaled) %>% # make table with cell types as columns, populate with average expression (rows will be times)
+      as.data.frame() # make dataframe
+
+    row.names(exp_mat) <- exp_mat$time  # make times the row names
+    exp_mat <- exp_mat[,-1] %>% as.matrix() #delete first column (time column)
+    exp_mat <- t(exp_mat)
+
+    #the matrix for the percentage of cells express a gene
+    percent_mat <- df %>%  # take df
+      select(time, cell, pct.exp) %>% # select time, cell type and average expression data
+      pivot_wider(names_from = cell, values_from = pct.exp) %>% # make table with cell types as columns, populate with average expression (rows will be times)
+      as.data.frame() # make dataframe
+
+    row.names(percent_mat) <- percent_mat$time  # make times the row names
+    percent_mat <- percent_mat[,-1] %>% as.matrix() #delete first column (time column)
+    percent_mat <- t(percent_mat)
+
+  #plot
+    #https://divingintogeneticsandgenomics.rbind.io/post/clustered-dotplot-for-single-cell-rnaseq/
+
+    code_name <- ASnames %>% filter(V2 == genetoplot) %>% select(V1) %>% pull()
+    code_name_nice <- gsub("gene:","", code_name)
+    ifelse(code_name == genetoplot,
+           title <- paste0("(",code_name_nice,")"),
+           title <- paste0(genetoplot,"\n(",code_name_nice,")")
+    )
+    
+    set.seed(123)    
+    hp<- Heatmap(exp_mat,
+                 heatmap_legend_param=list(title="expression"),
+                 column_title = title, 
+                 column_title_gp = gpar(fontsize = 8),
+                 col=col_fun,
+                 rect_gp = gpar(type = "none"),
+                 layer_fun = function(j, i, x, y, w, h, fill){
+                   grid.rect(x = x, y = y, width = w, height = h,
+                             gp = gpar(col = NA, fill = NA))
+                   grid.circle(x=x,y=y,r= pindex(percent_mat, i, j)/100 * unit(2, "mm"),
+                               gp = gpar(fill = col_fun(pindex(exp_mat, i, j)), col = NA))},
+                 row_names_gp = gpar(fontsize = 12),
+                 column_names_gp = gpar(fontsize = 12),
+                 border = "black",
+                 row_order = order_cells_AS[order_cells_AS %in% codelistofcelltypes],
+                 column_order = rev(order_time_AS),
+                 cluster_rows = FALSE,
+                 cluster_columns = FALSE,
+                 width = ncol(exp_mat)*unit(4, "mm"), 
+                 height = nrow(exp_mat)*unit(4, "mm"), #https://jokergoo.github.io/2020/05/11/set-cell-width/height-in-the-heatmap/
+                 column_labels = c("Control", "12h", "24h", "36h", "48h", "60h"), # please make sure this order matches the order of exp_mat$time - does not necessarily = order_time_AS, instead it seems to be the order the times are in your metadata, so always TX, TA, TB, TC, TD, TE!
+                 row_labels = new.cluster.ids_AS[rownames(exp_mat)],
+                 #https://jokergoo.github.io/ComplexHeatmap-reference/book/a-single-heatmap.html
+                 row_names_side = "left"
+                 ) 
+    nice_name <- gsub(":","",genetoplot)
+    nice_name <- gsub("/","",nice_name)
+    nice_name <- gsub("-","",nice_name)
+    hp
+}
+```
+
+```{r}
+celllist <- c("Suprabasal Keratinocytes", "Intermediate Keratinocytes", "Basal Keratinocytes")
+
+Dotplot_CO("SAT1", celllist)
+Dotplot_AS("SAT1", celllist)
+```

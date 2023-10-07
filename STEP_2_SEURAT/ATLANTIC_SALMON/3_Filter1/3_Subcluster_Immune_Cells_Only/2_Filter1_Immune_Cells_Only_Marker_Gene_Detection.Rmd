@@ -1,0 +1,71 @@
+---
+title: "Filter1 Immune Cells Only Marker Gene Detection"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen=999)
+#set seed for reproducibility
+set.seed(42)
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(ggplot2) # to make plots
+library(dplyr) # to manipulate data frames
+library(cowplot) # to arrange plots in a grid
+library(data.table) # to use %like%
+library(glmGamPoi) # helps to speed up SCTransform step
+library("DoubletFinder") # to detect doublets in our dataset
+```
+
+### Load Data
+
+```{r load rds}
+AS.integrated <- readRDS("AS.integrated_filter1_immune.rds")
+```
+
+### Set Default Assay
+
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data
+# https://github.com/satijalab/seurat/issues/1534
+# https://satijalab.org/seurat/articles/integration_introduction.html
+DefaultAssay(AS.integrated) <- "SCT"
+```
+
+## Find Markers
+
+```{r Differential Expression}
+# First prep for SCT based DE marker detection:
+# https://satijalab.org/seurat/reference/prepsctfindmarkers
+# Not needed since done previously https://satijalab.org/seurat/articles/sctransform_v2_vignette.html#identify-differential-expressed-genes-across-conditions-1
+#AS.integrated <- PrepSCTFindMarkers(AS.integrated, assay = "SCT")
+
+# find markers for every cluster compared to all remaining cells, report only the positive ones, run a logistic regression model with sample as a latent variable (see: https://github.com/satijalab/seurat/issues/1057), use "SCT" assay and the "data" slot: https://satijalab.org/seurat/articles/sctransform_v2_vignette.html
+AS.markers <- FindAllMarkers(AS.integrated, assay = "SCT", slot = "data", only.pos = TRUE, min.pct = 0.25, return.thresh = 0.01, pseudocount.use = 0.001, logfc.threshold = 0.25, test.use = "LR", latent.vars = "orig.ident", recorrect_umi = FALSE)
+
+# save to file
+write.table(AS.markers, file="DE-AS_filter1_immune.txt", sep="\t")
+```
+
+```{r session info}
+sessionInfo()
+```
+
+

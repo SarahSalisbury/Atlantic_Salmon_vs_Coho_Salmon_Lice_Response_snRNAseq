@@ -1,0 +1,243 @@
+---
+title: "Atlantic Salmon Stacked Bar Plot Cell Count"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen = 999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Packages
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(chisq.posthoc.test)
+```
+
+### Load the Seurat object
+```{r load Seurat object}
+AS.integrated <- readRDS("../../ATLANTIC_SALMON/4_Filter1_Incorporate_Immune_Cell_Substructuring/AS.integrated_filter1_subset.rds")
+```
+
+## Format Data
+
+### Set Assay
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data: https://satijalab.org/seurat/articles/sctransform_v2_vignette.html#perform-integration-using-pearson-residuals-1
+DefaultAssay(AS.integrated) <- "SCT"
+```
+
+### Set Clusters
+```{r set clusters}
+# Set identity classes to an existing column in meta data
+Idents(object = AS.integrated) <- "SUBCLUSTER_MERGED" # the column where we broke down immune and cluster 12 cells
+```
+
+### Set Cluster IDs
+```{r rename clusters for AS}
+#https://satijalab.org/seurat/articles/pbmc3k_tutorial.html
+new.cluster.ids.AS <- c("1" = "Fibroblast_1",
+                     "2" = "Intermediate_Keratinocytes",
+                     "3" = "Basal_Keratinocytes",
+                     "5" = "Secretory",
+                     "6" = "Mucous", 
+                     "7" = "Osteoblasts",
+                     "8" = "Endothelial",
+                     "9" = "Glial_1",
+                     "10" = "Keratinocyte_Suprabasal",
+                     "11" = "Red_Blood_Cell",
+                     "12" = "Neuronal_1",
+                     "13" = "Ltk_cells",
+                     "14" = "Fibroblast_2",
+                     "16" = "Undifferentiated",
+                     "17" = "Glial_2",
+                     "18" = "Muscle_cells",
+                     "20" = "Neuronal_2",
+                     "Dendritic_cells_5" = "Dendritic_cells",
+                     "Myeloid" = "Myeloid",
+                     "T_cells" = "T_cells",
+                     "B_cells_10" = "B_cells",
+                     "Neutrophil_cells_7" = "Neutrophil_cells",
+                     "Monocyte_11" = "Monocyte"
+                     )
+
+#https://github.com/satijalab/seurat/issues/3500
+AS.integrated <- RenameIdents(AS.integrated, new.cluster.ids.AS)
+AS.integrated$CellTypeNames <- Idents(AS.integrated) # save in metadata
+```
+
+### Set Time IDs
+```{r set time ids for AS}
+#Next I need to assign samples to timepoints.
+AS.integrated$TIME <- ifelse(AS.integrated$orig.ident == "AS_TX_skin", "TX",
+                      ifelse(AS.integrated$orig.ident == "AS_TA_skin", "TA",
+                      ifelse(AS.integrated$orig.ident == "AS_TB_skin", "TB",
+                      ifelse(AS.integrated$orig.ident == "AS_TC_skin", "TC",
+                      ifelse(AS.integrated$orig.ident == "AS_TD_skin", "TD",
+                      ifelse(AS.integrated$orig.ident == "AS_TE_skin", "TE",
+                      ifelse(AS.integrated$orig.ident == "AS_TX_PV", "TX",
+                      ifelse(AS.integrated$orig.ident == "AS_TC_PV", "TC",
+                      ifelse(AS.integrated$orig.ident == "AS_TD_PV", "TD",
+                      ifelse(AS.integrated$orig.ident == "AS_TE_PV", "TE",
+                      "ERROR"))))))))))
+```
+
+### Set Tissue IDs
+```{r set tissue ids for AS}
+#Next I need to assign samples to timepoints.
+AS.integrated$TISSUE <- ifelse(AS.integrated$orig.ident == "AS_TX_skin", "skin",
+                      ifelse(AS.integrated$orig.ident == "AS_TA_skin", "skin",
+                      ifelse(AS.integrated$orig.ident == "AS_TB_skin", "skin",
+                      ifelse(AS.integrated$orig.ident == "AS_TC_skin", "skin",
+                      ifelse(AS.integrated$orig.ident == "AS_TD_skin", "skin",
+                      ifelse(AS.integrated$orig.ident == "AS_TE_skin", "skin",
+                      ifelse(AS.integrated$orig.ident == "AS_TX_PV", "PV",
+                      ifelse(AS.integrated$orig.ident == "AS_TC_PV", "PV",
+                      ifelse(AS.integrated$orig.ident == "AS_TD_PV", "PV",
+                      ifelse(AS.integrated$orig.ident == "AS_TE_PV", "PV",
+                      "ERROR"))))))))))
+```
+
+### Set Plot Labels
+```{r set plot labels for AS}
+cluster.id.plot.labels.AS <- c("Fibroblast_1" = "Fibroblasts (1)",
+                            "Intermediate_Keratinocytes" = "Intermediate Keratinocytes",
+                            "Basal_Keratinocytes" = "Basal Keratinocytes",
+                            "Secretory" = "Secretory", 
+                            "Mucous" = "Mucous",
+                            "Osteoblasts" = "Osteoblasts",
+                            "Endothelial" = "Endothelial",
+                            "Glial_1" = "Glial (1)",
+                            "Keratinocyte_Suprabasal" = "Suprabasal Keratinocytes",
+                            "Red_Blood_Cell" = "Red Blood Cells",
+                            "Neuronal_1" = "Neuronal (1)",
+                            "Ltk_cells" = "Neural Crest Cells",
+                            "Fibroblast_2" = "Fibroblasts (2)",
+                            "Undifferentiated" = "Undifferentiated",
+                            "Glial_2" = "Glial (2)",
+                            "Muscle_cells" = "Muscle",
+                            "Neuronal_2" = "Neuronal (2)",
+                            "Dendritic_cells" = "Dendritic Cells",
+                            "Myeloid" = "Macrophages",
+                            "T_cells" = "T Cells",
+                            "B_cells" = "B Cells",
+                            "Neutrophil_cells" = "Neutrophils",
+                            "Monocyte" = "Monocyte")
+```
+
+```{r}
+# specify colours for each sample
+sample.colors.AS <- c(AS_TX_skin = "#3333FF",
+                   AS_TA_skin = "#ffffb2",
+                   AS_TB_skin ="#fecc5c",
+                   AS_TC_skin = "#fd8d3c",
+                   AS_TD_skin = "#f03b20",
+                   AS_TE_skin = "#bd0026",
+                   AS_TX_PV = "#33C8FF",
+                   AS_TC_PV = "#DB6B15",
+                   AS_TD_PV = "#E10000",
+                   AS_TE_PV = "#7C031B")
+
+#set orig.ident as a factor and order the levels how you want them in the plot: https://www.statology.org/ggplot-reorder-stacked-bars/
+AS.integrated@meta.data$orig.ident <- factor(AS.integrated@meta.data$orig.ident,
+                                             levels = c('AS_TE_PV',
+                                                      'AS_TE_skin',
+                                                      'AS_TD_PV',
+                                                      'AS_TD_skin',
+                                                      'AS_TC_PV',
+                                                      'AS_TC_skin',
+                                                      'AS_TB_skin',
+                                                      'AS_TA_skin',
+                                                      'AS_TX_PV',
+                                                      'AS_TX_skin'))
+
+order_plots_AS <- rev(c("T_cells",
+                 "B_cells",
+                 "Dendritic_cells",
+                 "Neutrophil_cells",
+                 "Myeloid",
+                 "Monocyte",
+                 "Keratinocyte_Suprabasal",
+                 "Intermediate_Keratinocytes",
+                 "Basal_Keratinocytes",
+                 "Fibroblast_1",
+                 "Fibroblast_2",
+                 "Endothelial",
+                 "Secretory",
+                 "Mucous",
+                 "Osteoblasts",
+                 "Red_Blood_Cell",
+                 "Muscle_cells",
+                 "Ltk_cells",
+                 "Neuronal_1",
+                 "Neuronal_2",
+                 "Glial_1",
+                 "Glial_2",
+                 "Undifferentiated"))
+
+# https://www.statology.org/ggplot-reorder-stacked-bars/
+#set order of cell types
+AS.integrated@meta.data$CellTypeNames <- factor(AS.integrated@meta.data$CellTypeNames, levels = order_plots_AS)
+
+#plot as proportion or percentage of cluster, https://stackoverflow.com/questions/51272689/ggplot2-how-to-change-the-order-of-a-legend
+cells_by_cluster_sample_proportion_plot_AS <- ggplot(AS.integrated@meta.data,
+                                                  aes(x = CellTypeNames, # x axis = cell clusters
+                                                      fill = orig.ident)) + # fill color based on sample
+  geom_bar() + # make barplot
+  theme_bw() + # black and white theme
+  coord_flip() + # flip x and y axis
+  scale_fill_manual(breaks = c('AS_TX_skin', # specify order you want the samples to be displayed within the bars
+                             'AS_TX_PV',
+                             'AS_TA_skin',
+                             'AS_TB_skin',
+                             'AS_TC_skin',
+                             'AS_TC_PV',
+                             'AS_TD_skin',
+                             'AS_TD_PV',
+                             'AS_TE_skin',
+                             'AS_TE_PV'),
+                    values = sample.colors.AS, # specify colours
+                    name = "Sample", # label legend
+                    labels=c("Control Skin",
+                             "Control Fin",
+                             "12h Skin",
+                             "24h Skin",
+                             "36h Skin",
+                             "36h Fin",
+                             "48h Skin",
+                             "48h Fin",
+                             "60h Skin",
+                             "60h Fin")
+  ) +
+  theme(axis.title.x = element_blank(), # remove x axis title
+        #axis.text.x = element_blank(), # remove x axis label
+        axis.title.y = element_blank(), # remove y axis title
+        axis.ticks.x = element_blank()) + # remove x axis ticks
+  xlab("Putative Cell Types") + # label X axis
+  scale_x_discrete(position = "top", labels = cluster.id.plot.labels.AS) + # make nice labels
+  theme(plot.margin = unit(c(0, 0, 0, 0), "cm"))+
+  ylim(0, 17000)
+
+#Great now save this plot
+pdf("cells_by_cluster_sample_bar_plot_AS.pdf", width = 11, height = 7.2) # ok I forgot to set dingbats but probably find since barplot
+cells_by_cluster_sample_proportion_plot_AS
+dev.off()
+```

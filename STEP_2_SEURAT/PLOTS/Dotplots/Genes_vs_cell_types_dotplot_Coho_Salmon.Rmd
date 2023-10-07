@@ -1,0 +1,203 @@
+---
+title: "Genes vs Cell Types Dotplot Atlantic Salmon"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen=999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+```
+
+## Load Data
+```{r}
+# Load Seurat Data
+CO.integrated <- readRDS("../../COHO_SALMON/5_Filter2_Incorporate_Cell_Substructuring/CO.integrated_filter2_subset.rds")
+```
+
+## Set Default Assay
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data
+# https://github.com/satijalab/seurat/issues/1534
+# https://satijalab.org/seurat/articles/integration_introduction.html
+DefaultAssay(CO.integrated) <- "SCT"
+```
+
+```{r set clusters}
+# Set identity classes to an existing column in meta data
+Idents(object = CO.integrated) <- "SUBCLUSTER_MERGED" # the column where we broke down immune and cluster 12 cells
+```
+
+### Set Cluster IDs
+```{r rename clusters for CO}
+#https://satijalab.org/seurat/articles/pbmc3k_tutorial.html
+new.cluster.ids.CO <- c("0" = "Intermediate Keratinocytes",
+                 "1" = "Basal Keratinocytes",
+                 "2" = "Fibroblasts (1)",
+                 "3" = "Suprabasal Keratinocytes", 
+                 "4" = "Secretory", 
+                 "7" = "Endothelial", 
+                 "8" = "Mucous (1)", 
+                 "9" = "Glial", 
+                 "10" = "Red Blood Cells", 
+                 "11" = "Mucous (2)", 
+                 "Muscle_cells" = "Muscle", 
+                 "Ltk_cells" = "Neural Crest Cells", 
+                 "13" = "Neuronal (1)",
+                 "14" = "Osteoblasts", 
+                 "15" = "Neuronal (2)", 
+                 "16" = "Neuronal (3)", 
+                 "17" = "Integument",
+                 "Dendritic_cells_5" = "Dendritic Cells",
+                 "Myeloid" = "Macrophages",
+                 "T_cells" = "T Cells",
+                 "B_cells_10" = "B Cells",
+                 "Neutrophil_cells_3" = "Neutrophils",
+                 "Monocyte_9" = "Monocyte")
+
+order_plots_CO <- c("T Cells",
+                               "B Cells",
+                               "Dendritic Cells",
+                               "Neutrophils",
+                               "Macrophages",
+                               "Monocyte",
+                               "Suprabasal Keratinocytes",
+                               "Intermediate Keratinocytes",
+                               "Basal Keratinocytes",
+                               "Fibroblasts (1)",
+                               "Endothelial",
+                               "Secretory", 
+                               "Mucous (1)", 
+                               "Mucous (2)",
+                               "Osteoblasts",
+                               "Red Blood Cells",
+                               "Muscle",
+                               "Neural Crest Cells",
+                               "Integument",
+                               "Neuronal (1)",
+                               "Neuronal (2)",
+                               "Neuronal (3)", 
+                               "Glial")
+
+#https://github.com/satijalab/seurat/issues/3500
+CO.integrated <- RenameIdents(CO.integrated, new.cluster.ids.CO)
+CO.integrated$CellTypeNames <- Idents(CO.integrated) # save in metadata
+
+# Don't want to remake factor according to: https://github.com/satijalab/seurat/issues/3500
+#orders your cell type names by the order you specified in order_plots
+levels(CO.integrated) <- order_plots_CO # note this is ok to do for a Seurat object but not ok for levels in a factor in a column! As the latter will rename all your levels !!!
+```
+
+```{r}
+features_CO = rev(c(
+"tbc1d10c",
+"BCL11B.1",
+"tcf7.1",
+"skap1.1",
+"gene:ENSOKIG00005039268", #cd3e
+"gene:ENSOKIG00005016781", # CD3
+"gene:ENSOKIG00005012541", #CD2
+"EBF1.2",
+"SWAP70",
+"cd79a",
+"flt3",
+"csf3r",
+"gene:ENSOKIG00005020977", #CLEC4E
+"sema4ab.1",
+"CSF1R",
+"csf1ra",
+"MARCO",
+"MARCO.1",
+"CTSS.1",
+"ckba",
+"mitfa",
+"evpla.1",
+"ppl",
+"ELOVL6",
+"ASS1.1",
+"pof1b",
+"ITGA6.2",
+"lamb4",
+"fbn2b",
+"col12a1b.1",
+"egfl7.1",
+"tie1",
+"flt4",
+"pcdh11",
+"avil",
+"pou2f3",
+"PROX1",
+"fer1l4",
+"SPDEF",
+"SPDEF.3",
+"p2rx1.1",
+"p2rx1",
+"gene:ENSOKIG00005000569", #muc5ac
+"gene:ENSOKIG00005016948", #muc5ac
+"gene:ENSOKIG00005020321", #muc5ac
+"gene:ENSOKIG00005008059", #muc5ac
+"si:dkey-259j3.5.1", #muc5ac
+"panx3",
+"itga10",
+"fgfr4.1",
+"HBE1.2",
+"casq1b",
+"tnni2a.1",
+"ltk",
+"mlphb",
+"pnp4a",
+"fhl2b.1",
+"fhl2b",
+"alx4b",
+"PLCB2",
+"rgs1",
+"rgs1.1",
+"trpm5",
+"kcnk17",
+"nwd1",
+"cntn4.1",
+"SAMD12.1",
+"gene:ENSOKIG00005025589", #il10rb
+"alk",
+"ABCG1",
+"wdr95"
+)
+)
+
+COplot<- DotPlot(CO.integrated, features = features_CO, assay = "SCT",  cols = c("white", "black")) +
+  theme(axis.text.x = element_text(angle = 90, hjust=1))+ #https://stackoverflow.com/questions/30510653/left-align-tick-mark-labels-in-r-ggplot
+  guides(colour = guide_colorbar(order = 1, title = "Average Expression"), #https://stackoverflow.com/questions/11393123/controlling-ggplot2-legend-display-order
+              size = guide_legend(order = 2, title = "Percent Expressed")) +
+  labs(y = NULL,
+       x = NULL) +
+   RotatedAxis()+coord_flip()
+
+# Plot
+pdf("COmarkersextra.pdf", width=10, height=14, useDingbats = FALSE)
+COplot
+dev.off()
+```

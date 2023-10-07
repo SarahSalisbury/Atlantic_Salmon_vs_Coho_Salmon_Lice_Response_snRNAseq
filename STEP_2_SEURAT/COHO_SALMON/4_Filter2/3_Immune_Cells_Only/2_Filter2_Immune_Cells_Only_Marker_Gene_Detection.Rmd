@@ -1,0 +1,71 @@
+---
+title: "Filter2 Immune Cells Only Marker Gene Detection"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen=999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(ggplot2) # to make plots
+library(dplyr) # to manipulate data frames
+library(cowplot) # to arrange plots in a grid
+library(data.table) # to use %like%
+library(glmGamPoi) # helps to speed up SCTransform step
+library("DoubletFinder") # to detect doublets in our dataset
+```
+
+### Load Data
+
+```{r load rds}
+CO.integrated <- readRDS("CO.integrated_filter1_immuneonly.rds")
+```
+
+### Set Default Assay
+
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data
+# https://github.com/satijalab/seurat/issues/1534
+# https://satijalab.org/seurat/articles/integration_introduction.html
+DefaultAssay(CO.integrated) <- "SCT"
+```
+
+## Find Markers
+
+```{r Differential Expression}
+# First prep for SCT based DE marker detection:
+# https://satijalab.org/seurat/reference/prepsctfindmarkers
+# Not needed since done previously https://satijalab.org/seurat/articles/sctransform_v2_vignette.html#identify-differential-expressed-genes-across-conditions-1
+#CO.integrated <- PrepSCTFindMarkers(CO.integrated, assay = "SCT")
+
+# find markers for every cluster compared to all remaining cells, report only the positive ones, run a logistic regression model with sample as a latent variable (see: https://github.com/satijalab/seurat/issues/1057), use "SCT" assay and the "data" slot: https://satijalab.org/seurat/articles/sctransform_v2_vignette.html
+CO.markers <- FindAllMarkers(CO.integrated, assay = "SCT", slot = "data", only.pos = TRUE, min.pct = 0.25, return.thresh = 0.01, pseudocount.use = 0.001, logfc.threshold = 0.25, test.use = "LR", latent.vars = "orig.ident", recorrect_umi = FALSE)
+
+# save to file
+write.table(CO.markers, file="DE-CO_filter2_immuneonly.txt", sep="\t")
+```
+
+```{r session info}
+sessionInfo()
+```
+
+

@@ -1,0 +1,114 @@
+---
+title: "Filter1 Post Immune Cell Incorporation Differential_Expression"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen=999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+```
+
+### Load Data
+
+```{r load rds}
+AS.integrated <- readRDS("AS.integrated_filter1_subset.rds")
+```
+
+### Set Default Assay
+
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data
+# https://github.com/satijalab/seurat/issues/1534
+# https://satijalab.org/seurat/articles/integration_introduction.html
+DefaultAssay(AS.integrated) <- "SCT"
+```
+
+### Set identities to SUBCLUSTER column
+```{r set identities}
+# Set identity classes to an existing column in meta data
+Idents(object = AS.integrated) <- "SUBCLUSTER_MERGED" # the column where we broke down immune and cluster 12 cells
+#Idents(object = AS.integrated)
+levels(x = AS.integrated)
+```
+
+## Find Markers
+
+```{r Differential Expression}
+# First prep for SCT based DE marker detection:
+# https://satijalab.org/seurat/reference/prepsctfindmarkers
+# Needed since NOT done previously https://satijalab.org/seurat/articles/sctransform_v2_vignette.html#identify-differential-expressed-genes-across-conditions-1
+AS.integrated <- PrepSCTFindMarkers(AS.integrated, assay = "SCT")
+
+#Next I need to assign samples to timepoints.
+AS.integrated$TIME <- ifelse(AS.integrated$orig.ident == "AS_TX_skin", "TX", ifelse(AS.integrated$orig.ident == "AS_TA_skin", "TA", ifelse(AS.integrated$orig.ident == "AS_TB_skin", "TB", ifelse(AS.integrated$orig.ident == "AS_TC_skin", "TC", ifelse(AS.integrated$orig.ident == "AS_TD_skin", "TD", ifelse(AS.integrated$orig.ident == "AS_TE_skin", "TE", ifelse(AS.integrated$orig.ident == "AS_TX_PV", "TX", ifelse(AS.integrated$orig.ident == "AS_TC_PV", "TC", ifelse(AS.integrated$orig.ident == "AS_TD_PV", "TD", ifelse(AS.integrated$orig.ident == "AS_TE_PV", "TE", "ERROR"))))))))))
+
+#Set treatment samples
+treatments <- c("TA", "TB", "TC", "TD", "TE")
+
+#Make new metadata column with cluster_sample
+AS.integrated$celltypebytimepoint <- paste(Idents(AS.integrated), AS.integrated$TIME, sep = "_")
+
+#Make new metadata column to store Idents (currently cluster #)
+AS.integrated$celltype <- Idents(AS.integrated)
+
+#Make the cluster_sample column your new Idents
+Idents(AS.integrated) <- "celltypebytimepoint"
+
+# find markers for every cluster compared to all remaining cells, report only the positive ones, run a logistic regression model with sample as a latent variable (see: https://github.com/satijalab/seurat/issues/1057), use "SCT" assay and the "data" slot: https://satijalab.org/seurat/articles/sctransform_v2_vignette.html
+for (j in 1:length(treatments)) { # for each of the treatment timepoints (number specified by length(treatments))
+  for (i in 1:(length(unique(AS.integrated$celltype)))) { # and for each of the cell types (number specified by length(unique(AS.integrated$celltype)))
+    
+    #specify the control sample that we'll be comparing
+    control <- paste0(unique(AS.integrated$celltype)[i],"_TX") ####
+    
+    #specify the treatment sample that we'll be comparing
+    treatment <- paste0(unique(AS.integrated$celltype)[i],"_",treatments[[j]]) # i gives you the cell cluster number, j gives you the sample id, and we need a "_" in the middle to match formatting in AS.integrated$celltypebytimepoint
+    
+    # make the name of the file, specify which samples are being compared
+    file_name = paste0("DE-AS_", treatment, "_vs_", control, ".txt")
+    
+    # find differentially expressed markers between the two cell clusters
+    # Set the only.pos to FALSE because we'd like differentially expressed things which are either upregulated in the first cell type (control) OR in the second cell type (treatment), the latter scenario is considered a "negative" correlation with respect to expression in the first identity class
+    # We're going to use "tryCatch" because that should hopefully keep the loop running if there are errors as we expect since some cell types aren't found in all clusters and that could otherwise stop the loop from running
+    # Now the problem with using tryCatch is that it will keep going even if one ident isn't available, in which case the output will just be whatever was stored from the previous loop!!! NOT GOOD!!!
+    # So what we'll try to do is to make tryCatch store the error (error = identity), and this should be saved as the output in those comparisons where one ident isn't available, instead of the previous output!
+    #for more details see:https://unc-libraries-data.github.io/R-Open-Labs/week9_Loops_Errors/R_OpenLabs_Loops.html
+    #for more details on storing errors see: https://stackoverflow.com/questions/36966036/how-to-get-the-last-error
+    # also: http://adv-r.had.co.nz/Exceptions-Debugging.html
+    # we're going to use latent.vars = "orig.ident" to hopefully minimize isssues due to sample differences see: https://github.com/satijalab/seurat/issues/1057
+    #recorrect_umi = FALSE needed to prevent redoing umi counts with fewer cells
+    output <- tryCatch(FindMarkers(AS.integrated, ident.1 = treatment, ident.2 = control, assay = "SCT", slot = "data", only.pos = FALSE, min.pct = 0.1, return.thresh = 0.01, pseudocount.use = 0.001, logfc.threshold = 0.25, recorrect_umi = FALSE),
+    error = function(e) geterrmessage())
+    
+    # save the markers to a file
+    write.table(output, file = file_name, sep="\t")
+  }
+}
+```
+
+```{r session info}
+sessionInfo()
+```
+
+
+

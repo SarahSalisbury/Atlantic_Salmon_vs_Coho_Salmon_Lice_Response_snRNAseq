@@ -1,0 +1,292 @@
+---
+title: "Filter2 Filter Differential Expression Results"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen=999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+```
+
+### Load all of the .txt files with the differentially expressed genes for each cell type x sample combination
+```{r load files}
+#Grab all files with ".txt" ending in our file, keep full path names (but because we set working directory above the path is just ./DE-AS_*****)
+filenames <- list.files(pattern="*.txt", full.names=TRUE)
+```
+
+## Compare Differentially expressed genes by cell type x sample combination
+
+So what I'd like to do is to:
+
+1) Read each of the files in the list
+2) Remove from consideration those files which have an error due to one cell type not being found in one of the compared samples (e.g., cell type 9 is only found in the TA sample)
+3) Remove from consideration those files which have an error due to one cell type not having enough cells in one of the compared samples
+4) Filter out those genes that were differentially expressed with a p.adj > 0.05
+5) For each gene listed across all files, count how many times that gene is listed across all files
+
+### 1. Read Files
+```{r read files}
+#read all the filenames in the list
+#Note that you will get a message for each table "Detected 5 column names but the data has 6 columns (i.e. invalid file). Added 1 extra default column name for the first column which is guessed to be row names or an index. Use setnames() afterwards if this guess is not correct, or fix the file write command that created the file to create a valid file."
+#This is fine because the first column has no header but is just a row number so it is fine how R has handled this (i.e. setting it as a row number)
+ldf <- lapply(filenames, fread)
+
+#change the name of the first column #https://www.projectpro.io/recipes/change-column-headers-of-dataframe-r
+#for all dataframes in my list https://stackoverflow.com/questions/28648513/changing-column-names-in-a-list-of-data-frames-in-r
+for (i in seq_along(ldf)){
+  colnames(ldf[[i]])[1] <- "gene"
+}
+
+#Clean up the list of file names and save as new list
+#remove ".txt"
+filenamescleaner <- gsub('.txt','',filenames)
+#remove "./"
+filenamescleaner <- gsub('./','',filenamescleaner)
+
+#Assign names to list of data.tables, just so we can keep track of which data.table is associated to which cell type x sample combos were compared
+names(ldf) <- filenamescleaner
+```
+
+## 2. Identify and remove dataframes with no cells compared
+
+Some cell types aren't present in some samples, so when we did the differential expression analysis we get an error.
+```{r remove dataframes with no cells}
+
+# for each data table in ldf find "Cannot find the following identities in the object", and report the lines that contain this (value = TRUE), save the output for each data table in a list "ldf_nomissing"
+ldf_nomissing <- lapply(ldf, grep, pattern ="Cannot find the following identities in the object:", value = TRUE)
+
+# now collapse this list by stacking each list one on top of the other (rbind) and save as a data frame
+#https://stackoverflow.com/questions/10590904/extracting-outputs-from-lapply-to-a-dataframe
+ldf_nomissing<-as.data.frame(do.call(rbind, ldf_nomissing))
+
+# subset the original list of dataframes to only those that do not have their names in the ldf_nomissing dataframe
+ldfnobad <- ldf[names(ldf) %in% rownames(ldf_nomissing) == FALSE]
+
+# test if the number of data frames in ldfnobad is the same as the original list of data frames (ldf) minus those data frames that had missing cells (ldf_nomissing)
+length(ldfnobad) == length(ldf) - length(rownames(ldf_nomissing))
+
+#check manually
+length(ldfnobad)
+length(ldf)
+length(rownames(ldf_nomissing))
+```
+
+### 3. Identify and remove dataframes with too few cells compared
+
+Some cell types have too few cells in some clusters, so when we did the differential expression analysis we get an error.
+```{r remove dataframes with too few cells}
+
+# for each data table in ldfnobad find "has fewer than", and report the lines that contain this (value = TRUE), save the output for each data table in a list "ldf_notoofew"
+ldf_notoofew <- lapply(ldfnobad, grep, pattern ="has fewer than", value = TRUE)
+
+# now collapse this list by stacking each list one on top of the other (rbind) and save as a data frame
+#https://stackoverflow.com/questions/10590904/extracting-outputs-from-lapply-to-a-dataframe
+ldf_notoofew<-as.data.frame(do.call(rbind, ldf_notoofew))
+
+# subset the ldfnobad list of dataframes to only those that do not have their names in the ldf_notoofew dataframe
+ldfnobad <- ldfnobad[names(ldfnobad) %in% rownames(ldf_notoofew) == FALSE]
+
+# test if the number of data frames in ldfnobad is the same as the original list of data frames (ldf) minus those data frames that had missing cells (ldf_nomissing) and minus those data frames that had too few cells (ldf_notoofew)
+length(ldfnobad) == length(ldf) - length(rownames(ldf_nomissing)) - length(rownames(ldf_notoofew))
+
+#check manually
+length(ldfnobad)
+length(ldf)
+length(rownames(ldf_nomissing))
+length(rownames(ldf_notoofew))
+```
+
+### 4. Filter out insignificantly differentially expressed genes
+```{r filter out insignificant genes}
+# to all data tables in ldfnobad, filter for those rows which have a value less than 0.05 in the p_val_adj column
+ldfnobad <- lapply(ldfnobad, function(x) 
+  x %>% filter(p_val_adj < 0.001))
+```
+
+###5. Load Seurat Data
+```{r}
+# Load Seurat Data
+CO.integrated <- readRDS("CO.integrated_filter2_subset.rds")
+```
+
+## Set Default Assay
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data
+# https://github.com/satijalab/seurat/issues/1534
+# https://satijalab.org/seurat/articles/integration_introduction.html
+DefaultAssay(CO.integrated) <- "SCT"
+```
+
+```{r set clusters}
+# Set identity classes to an existing column in meta data
+Idents(object = CO.integrated) <- "SUBCLUSTER_MERGED" # the column where we broke down immune and cluster 12 cells
+```
+
+```{r}
+#https://divingintogeneticsandgenomics.rbind.io/post/enhancement-of-scrnaseq-heatmap-using-complexheatmap/
+#Next I need to assign samples to timepoints.
+CO.integrated$TIME <- ifelse(CO.integrated$orig.ident == "CO_TA_PV_45", "TA",
+                      ifelse(CO.integrated$orig.ident == "CO_TA_skin", "TA",
+                      ifelse(CO.integrated$orig.ident == "CO_TB_PV", "TB",
+                      ifelse(CO.integrated$orig.ident == "CO_TB_skin", "TB",
+                      ifelse(CO.integrated$orig.ident == "CO_TC_PV", "TC",
+                      ifelse(CO.integrated$orig.ident == "CO_TC_skin", "TC",
+                      ifelse(CO.integrated$orig.ident == "CO_TD_PV", "TD",
+                      ifelse(CO.integrated$orig.ident == "CO_TD_skin", "TD",
+                      ifelse(CO.integrated$orig.ident == "CO_TE_PV", "TE",
+                      ifelse(CO.integrated$orig.ident == "CO_TE_skin", "TE",
+                      ifelse(CO.integrated$orig.ident == "CO_TX_PV_44", "TX",
+                      ifelse(CO.integrated$orig.ident == "CO_TX_skin", "TX",
+                      "ERROR"))))))))))))
+
+#Make new metadata column with cluster_sample
+CO.integrated$celltypebytimepoint <- paste(Idents(CO.integrated), CO.integrated$TIME, sep = "_")
+
+#Make new metadata column to store Idents (currently cluster #)
+CO.integrated$celltype <- Idents(CO.integrated)
+
+#Make the cluster_sample column your new Idents
+Idents(CO.integrated) <- "celltypebytimepoint"
+```
+
+### 6. Data Formatting
+```{r}
+library(stringi) # needed for stri_extract_first_regex
+
+#look at your list of tables
+ldfnobad
+
+for( i in seq_along(ldfnobad)){
+
+  ldfnobad[[i]]$SampleID <- names(ldfnobad[i]) # extract name of file indicating cell type x sample combos compared
+  ldfnobad[[i]]$CellID <- names(ldfnobad[i]) # extract name of file indicating cell type x sample combos compared
+  ldfnobad[[i]]$CellID <- gsub("DE-CO_","",ldfnobad[[i]]$CellID) # remove DE_CO from CellID column
+  ldfnobad[[i]]$CellID <- gsub("_T._vs_.*","",ldfnobad[[i]]$CellID) # removes "_T._vs_.*" in CellID column
+  ldfnobad[[i]]$TimeID <- names(ldfnobad[i]) # extract name of file indicating cell type x sample combos compared
+  ldfnobad[[i]]$TimeID <- gsub("_vs_.*","",ldfnobad[[i]]$TimeID) # remove everything after _vs in TimeID column
+  ldfnobad[[i]]$TimeID <- gsub("^.*T","T",ldfnobad[[i]]$TimeID) # remove everything up to the first T in TimeID column and then replace the T
+}
+```
+
+```{r}
+new.cluster.ids <- c("0" = "Intermediate Keratinocytes",
+                 "1" = "Basal Keratinocytes",
+                 "2" = "Fibroblasts (1)",
+                 "3" = "Suprabasal Keratinocytes",
+                 "4" = "Secretory", 
+                 "7" = "Endothelial", 
+                 "8" = "Mucous (1)", 
+                 "9" = "Glial", 
+                 "10" = "Red Blood Cells", 
+                 "11" = "Mucous (2)", 
+                 "Muscle_cells" = "Muscle", 
+                 "Ltk_cells" = "Neural Crest Cells", 
+                 "13" = "Neuronal (1)",
+                 "14" = "Osteoblasts", 
+                 "15" = "Neuronal (2)", 
+                 "16" = "Neuronal (3)", 
+                 "17" = "Integument",
+                 "Dendritic_cells_5" = "Dendritic Cells",
+                 "Myeloid" = "Macrophages",
+                 "T_cells" = "T Cells",
+                 "B_cells_10" = "B Cells",
+                 "Neutrophil_cells_3" = "Neutrophils",
+                 "Monocyte_9" = "Monocyte")
+
+allgenes_a <- bind_rows(ldfnobad) %>% mutate(nicemarkergroups = unname(new.cluster.ids[CellID])) # now take the markergroup value in each column and look up it's value in the new.cluster.ids named cluster to give you the nice name of the cluster, then unname it (to remove the name e.g., 1, 2, 3, 9) and save in a new column "nicemarkergroups" #https://www.tutorialspoint.com/how-to-remove-names-from-a-named-vector-in-r
+```
+```{r}
+# I think it would be reasonable to remove from consideration DE genes detected when either TX or the treatment timepoint has fewer than 50 cells.
+
+# Reset idents
+Idents(CO.integrated) <- "celltype"
+
+# Get number of cells per cluster and per sample of origin
+#https://github.com/satijalab/seurat/issues/738
+cells_per_cluster_per_sample <- table(CO.integrated@meta.data$celltype, CO.integrated@meta.data$TIME)
+cells_per_cluster_per_sample
+
+test <- as.data.table(cells_per_cluster_per_sample)
+test <- test %>% mutate(lessthan50 = ifelse(N<50, "TRUE", "FALSE")) # make column to say "FALSE" if number of cells is less than 50
+test <- test %>% mutate(SampleID = paste0("DE-CO_",V1, "_", V2, "_vs_", V1, "_TX")) # make column with samples compared
+
+# Ok I want a list of all cell types where TX had less than 50 cells (we will remove all of these cell types from further analysis)
+Badcelltypes <- test %>% filter(lessthan50 == "TRUE") %>% filter(V2 == "TX")
+
+#Now I want a list of all cell types and timepoints (other than TX) that had less than 50 cells
+Badtimes <- test %>% filter(lessthan50 == "TRUE") %>% filter(V2 != "TX")
+
+# function for remove
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+# ok now let's remove these bad cell types from our DE list
+test2 <- allgenes_a %>% filter(CellID %!in% Badcelltypes$V1) %>% filter(SampleID %!in% Badtimes$SampleID)
+
+allgenes_df_nolow <- data.frame() # make a dataframe to populate
+allgenes_dfcell_nolow <- list() # make a list to be populated with the data for each cell type
+for (i in 1:length(unique(test2$CellID))){ # for each unique cell type in our dataframe "a" do
+  allgenes_dfcell_nolow[[i]] <- test2 %>% filter(CellID == (unique(test2$CellID))[i]) # make a dataframe for each cell type only by filtering dataframe with all celltypes for a specific cell type
+  for (j in 1:length(unique(allgenes_dfcell_nolow[[i]]$gene))){ # for every unique gene in this resulting dataframe do
+    allgenes_dfcellgene_nolow <- allgenes_dfcell_nolow[[i]] %>% # make a dataframe for the gene
+      filter(gene == (unique(allgenes_dfcell_nolow[[i]]$gene))[j]) # by filtering for only those rows that have the gene name in the gene column
+    allgenes_output_nolow <- allgenes_dfcellgene_nolow %>% # take this new dataframe for just a single gene in a single cell type
+      mutate(DIRECTION_CONSISTENCY = ifelse((all(allgenes_dfcellgene_nolow$avg_log2FC > 0) | all(allgenes_dfcellgene_nolow$avg_log2FC < 0)), "CONSISTENT", "INCONSISTENT"))# make a new column "DIRECTIONCONSISTENCY" that if all values in the avg_log2FC column of this dataframe for only a single gene in a single cell type are all positive (>0) or (|) all negative, is "CONSISTENT" but if not is "INCONSISTENT. This tells us whether the direction of expression (upregulated or downregulated) is consistent across all time points for a particular gene in a particular cell type
+    allgenes_output_nolow <- allgenes_output_nolow %>% # take this new dataframe for just a single gene in a single cell type
+      mutate(DIRECTION = ifelse((all(allgenes_dfcellgene_nolow$avg_log2FC > 0)), "UP_CONSISTENT",
+                                 ifelse((all(allgenes_dfcellgene_nolow$avg_log2FC < 0)), "DOWN_CONSISTENT", "INCONSISTENT")))# make a new column "DIRECTION" that if all values in the avg_log2FC column of this dataframe for only a single gene in a single cell type are all positive (>0) is "UP_CONSISTENT", else, if all values in the avg_log2FC column of this dataframe for only a single gene in a single cell type are all negative (<0) is "DOWN_CONSISTENT"but if not is "INCONSISTENT. This tells us whether the direction of expression is consistently upregulated or downregulated across all time points for a particular gene in a particular cell type
+    allgenes_output_nolow <- allgenes_output_nolow %>%
+      mutate(GENE_COUNT = nrow(allgenes_output_nolow)) # add a column that gives the number of rows in this dataframe (i.e. the number of times a gene is observed to be DE in this particular cell type)
+    allgenes_df_nolow = rbind(allgenes_df_nolow, allgenes_output_nolow) # now bind the newly formed rows to the df dataframe
+  }
+}
+
+# split the data frame by grouping using "f" argument
+#https://www.geeksforgeeks.org/split-large-r-dataframe-into-list-of-smaller-dataframes/
+split_data_nolow <- split(allgenes_nice_list_nolow, f = allgenes_nice_list_nolow$CellType)
+
+#now save each list to a file
+#https://stackoverflow.com/questions/51893525/save-each-element-of-a-list-to-text-file
+for(i in 1:length(split_data_nolow)){
+  write.table(split_data_nolow[[i]], paste0("NOLOW_",names(split_data_nolow)[i], ".txt"), col.names = TRUE, row.names = FALSE, quote = FALSE, sep = ",")
+}
+```
+
+### 7. Count the number of times a gene was detected as significantly differentially expressed across all pairwise comparisons of cell type x sample combos
+```{r count genes}
+# stack the data frames in ldfnobad one on top of each other (bind_rows) and then give me a count for each value in column V1 (gene name)
+genecounts2<- test2 %>%  count(gene)
+
+# sort the dataframe with the genes with the highest counts first
+genecounts2 <- genecounts2[order(-n),]
+
+# see the table
+genecounts2
+
+#how many genes?
+nrow(genecounts2)
+#1799
+```

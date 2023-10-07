@@ -1,0 +1,184 @@
+---
+title: "Atlantic Salmon UMAP"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen = 999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(chisq.posthoc.test)
+```
+
+### Load the Seurat object
+```{r load Seurat object}
+AS.integrated <- readRDS("../../ATLANTIC_SALMON/4_Filter1_Incorporate_Immune_Cell_Substructuring/AS.integrated_filter1_subset.rds")
+```
+
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data: https://satijalab.org/seurat/articles/sctransform_v2_vignette.html#perform-integration-using-pearson-residuals-1
+DefaultAssay(AS.integrated) <- "SCT"
+```
+
+```{r set clusters}
+# Set identity classes to an existing column in meta data
+Idents(object = AS.integrated) <- "SUBCLUSTER_MERGED" # the column where we broke down immune and cluster 12 cells
+levels(x = AS.integrated)
+
+# Look at UMAP
+DimPlot(AS.integrated, label = TRUE)
+#Great so the identities seem right, and concordant with what we had before subsetting
+```
+
+```{r stacked bar plots}
+#https://satijalab.org/seurat/articles/pbmc3k_tutorial.html
+new.cluster.ids <- c("1" = "Fibroblast_1",
+                     "2" = "Intermediate_Keratinocytes",
+                     "3" = "Basal_Keratinocytes",
+                     "5" = "Secretory",
+                     "6" = "Mucous", 
+                     "7" = "Osteoblasts",
+                     "8" = "Endothelial",
+                     "9" = "Glial_1",
+                     "10" = "Keratinocyte_Suprabasal",
+                     "11" = "Red_Blood_Cell",
+                     "12" = "Neuronal_1",
+                     "13" = "Ltk_cells",
+                     "14" = "Fibroblast_2",
+                     "16" = "Undifferentiated",
+                     "17" = "Glial_2",
+                     "18" = "Muscle_cells",
+                     "20" = "Neuronal_2",
+                     "Dendritic_cells_5" = "Dendritic_cells_5",
+                     "Myeloid" = "Myeloid",
+                     "T_cells" = "T_cells",
+                     "B_cells_10" = "B_cells_10",
+                     "Neutrophil_cells_7" = "Neutrophil_cells_7",
+                     "Monocyte_11" = "Monocyte_11"
+                     )
+
+
+#https://github.com/satijalab/seurat/issues/3500
+AS.integrated <- RenameIdents(AS.integrated, new.cluster.ids)
+AS.integrated$CellTypeNames <- Idents(AS.integrated) # save in metadata
+
+cluster.id.plot.labels <- c("Fibroblast_1" = "Fibroblasts (1)",
+                            "Intermediate_Keratinocytes" = "Intermediate Keratinocytes",
+                            "Basal_Keratinocytes" = "Basal Keratinocytes",
+                            "Secretory" = "Secretory", 
+                            "Mucous" = "Mucous",
+                            "Osteoblasts" = "Osteoblasts",
+                            "Endothelial" = "Endothelial",
+                            "Glial_1" = "Glial (1)",
+                            "Keratinocyte_Suprabasal" = "Suprabasal Keratinocytes",
+                            "Red_Blood_Cell" = "Red Blood Cells",
+                            "Neuronal_1" = "Neuronal (1)",
+                            "Ltk_cells" = "Neural Crest Cells",
+                            "Fibroblast_2" = "Fibroblasts (2)",
+                            "Undifferentiated" = "Undifferentiated",
+                            "Glial_2" = "Glial (2)",
+                            "Muscle_cells" = "Muscle",
+                            "Neuronal_2" = "Neuronal (2)",
+                            "Dendritic_cells_5" = "Dendritic Cells",
+                            "Myeloid" = "Macrophages",
+                            "T_cells" = "T Cells",
+                            "B_cells_10" = "B Cells",
+                            "Neutrophil_cells_7" = "Neutrophils",
+                            "Monocyte_11" = "Monocyte")
+```
+
+```{r}
+order_plots <- c("T_cells",
+                 "B_cells_10",
+                 "Dendritic_cells_5",
+                 "Neutrophil_cells_7",
+                 "Myeloid",
+                 "Monocyte_11",
+                 "Keratinocyte_Suprabasal",
+                 "Intermediate_Keratinocytes",
+                 "Basal_Keratinocytes",
+                 "Fibroblast_1",
+                 "Fibroblast_2",
+                 "Endothelial",
+                 "Secretory",
+                 "Mucous",
+                 "Osteoblasts",
+                 "Red_Blood_Cell",
+                 "Muscle_cells",
+                 "Ltk_cells",
+                 "Neuronal_1",
+                 "Neuronal_2",
+                 "Glial_1",
+                 "Glial_2",
+                 "Undifferentiated")
+
+# Don't want to remake factor according to: https://github.com/satijalab/seurat/issues/3500
+# Make Identity factor orders
+#AS.integrated$CellTypeNames <- factor(AS.integrated$CellTypeNames, levels = order_plots)
+#Idents(AS.integrated) <- AS.integrated$CellTypeNames
+
+#note that we already switched our identities to those in column CellTypeNames, so by setting the levels to "order_plots" which is just a rearrangement of those levels already present in CellTypeNames this is totally fine
+#orders your cell type names by the order you specified in order_plots
+levels(AS.integrated) <- order_plots # note this is ok to do for a Seurat object but not ok for levels in a factor in a column! As the latter will rename all your levels !!!
+
+colours_figs <- c("T_cells"  = "darkorchid4",
+               "Myeloid" = "magenta2",
+               "Dendritic_cells_5" = "orchid1",
+               "Neutrophil_cells_7" = "hotpink",
+               "Monocyte_11" = "darkmagenta",
+               "B_cells_10" = "mediumorchid",
+               "Intermediate_Keratinocytes" = "darkgoldenrod",
+               "Basal_Keratinocytes" = "darkgoldenrod4",
+               "Keratinocyte_Suprabasal" = "darkgoldenrod2",
+               "Fibroblast_1" = "chocolate3",
+               "Secretory" = "deepskyblue4",
+               "Endothelial" = "deepskyblue",
+               "Mucous" = "darkolivegreen",
+               "Osteoblasts" = "burlywood1",
+               "Red_Blood_Cell" = "firebrick1",
+               "Muscle_cells" = "darkred",
+               "Ltk_cells" = "lightblue3",
+               "Neuronal_1" = "slateblue3",
+               "Neuronal_2" = "navy",
+               "Glial_1" = "thistle",
+               "Glial_2" = "thistle4",
+               "Fibroblast_2" = "khaki3",
+               "Undifferentiated" = "salmon"
+)
+```
+
+```{r}
+umap_coloured <- DimPlot(AS.integrated , reduction = "umap", pt.size = 0.1) +
+  scale_color_manual(values = colours_figs, breaks = order_plots, labels = cluster.id.plot.labels) +
+  guides(color = guide_legend(override.aes = list(size = 6), ncol = 1) ) # https://github.com/satijalab/seurat/issues/3899
+
+umap_coloured
+
+# Plot UMAP with clusters in a legend
+png("UMAP_clusters_AS_coloured.png", res = 600, width = 4600, height = 3500)
+umap_coloured
+dev.off()
+```

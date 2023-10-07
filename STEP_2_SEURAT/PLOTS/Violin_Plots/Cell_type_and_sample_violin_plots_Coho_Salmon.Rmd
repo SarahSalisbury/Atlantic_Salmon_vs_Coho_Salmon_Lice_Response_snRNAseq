@@ -1,0 +1,364 @@
+---
+title: "Cell Type and Sample Violin Plots Coho Salmon"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen=999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+```
+
+### Load the Seurat object
+```{r load Seurat object}
+CO.integrated <- readRDS("../../COHO_SALMON/5_Filter2_Incorporate_Cell_Substructuring/CO.integrated_filter2_subset.rds")
+```
+
+### Set Default Assay
+
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data: https://satijalab.org/seurat/articles/sctransform_v2_vignette.html#perform-integration-using-pearson-residuals-1
+DefaultAssay(CO.integrated) <- "SCT"
+```
+
+### Set identities to SUBCLUSTER column
+```{r set identities}
+# Set identity classes to an existing column in meta data
+Idents(object = CO.integrated) <- "SUBCLUSTER_MERGED" # the column where we broke down immune and cluster 12 cells
+```
+
+```{r}
+#https://satijalab.org/seurat/articles/pbmc3k_tutorial.html
+new.cluster.ids <- c("0" = "Intermediate_Keratinocytes",
+                 "1" = "Basal_Keratinocytes",
+                 "2" = "Fibroblast_1",
+                 "3" = "Superficial_Keratinocytes", 
+                 "4" = "Secretory", 
+                 "7" = "Endothelial", 
+                 "8" = "Mucous_1", 
+                 "9" = "Glial", 
+                 "10" = "Red_Blood_Cell", 
+                 "11" = "Mucous_2", 
+                 "Muscle_cells" = "Muscle_cells", 
+                 "Ltk_cells" = "Ltk_cells", 
+                 "13" = "Neuronal_1",
+                 "14" = "Osteoblasts", 
+                 "15" = "Neuronal_2", 
+                 "16" = "Neuronal_3", 
+                 "17" = "Integument",
+                 "Dendritic_cells_5" = "Dendritic_cells_5",
+                 "Myeloid" = "Myeloid",
+                 "T_cells" = "T_cells",
+                 "B_cells_10" = "B_cells_10",
+                 "Neutrophil_cells_3" = "Neutrophil_cells_3",
+                 "Monocyte_9" = "Monocyte_9")
+#https://github.com/satijalab/seurat/issues/3500
+CO.integrated <- RenameIdents(CO.integrated, new.cluster.ids)
+CO.integrated$CellTypeNames <- Idents(CO.integrated) # save in metadata
+```
+```{r}
+cluster.id.plot.labels <- c("Intermediate_Keratinocytes" = "Intermediate Keratinocytes",
+                 "Basal_Keratinocytes" = "Basal Keratinocytes",
+                 "Fibroblast_1" = "Fibroblasts (1)",
+                 "Superficial_Keratinocytes" = "Superficial Keratinocytes",
+                 "Endothelial" = "Endothelial", 
+                 "Secretory" = "Secretory", 
+                 "Mucous_1" = "Mucous (1)", 
+                 "Glial" = "Glial", 
+                 "Red_Blood_Cell" = "Red Blood Cells", 
+                 "Mucous_2" = "Mucous (2)", 
+                 "Muscle_cells" = "Muscle", 
+                 "Ltk_cells" = "Neural Crest Cells", 
+                 "Neuronal_1" = "Neuronal (1)",
+                 "Osteoblasts" = "Osteoblasts", 
+                 "Neuronal_2" = "Neuronal (2)", 
+                 "Neuronal_3" = "Neuronal (3)", 
+                 "Integument" = "Integument",
+                 "Dendritic_cells_5" = "Dendritic Cells",
+                 "Myeloid" = "Macrophages",
+                 "T_cells" = "T Cells",
+                 "B_cells_10" = "B Cells",
+                 "Neutrophil_cells_3" = "Neutrophils",
+                 "Monocyte_9" = "Monocyte")
+```
+
+```{r}
+order_plots <-c("T_cells",
+                "B_cells_10",
+                "Dendritic_cells_5",
+                "Neutrophil_cells_3",
+                "Myeloid",
+                "Monocyte_9",
+                "Superficial_Keratinocytes",
+                "Intermediate_Keratinocytes",
+                "Basal_Keratinocytes",
+                "Fibroblast_1",
+                "Endothelial",
+                "Secretory",
+                "Mucous_1",
+                "Mucous_2",
+                "Osteoblasts",
+                "Red_Blood_Cell",
+                "Muscle_cells",
+                "Ltk_cells",
+                "Integument",
+                "Neuronal_1",
+                "Neuronal_2",
+                "Neuronal_3",
+                "Glial")
+
+# Don't want to remake factor according to: https://github.com/satijalab/seurat/issues/3500
+# Make Identity factor orders
+#CO.integrated$CellTypeNames <- factor(CO.integrated$CellTypeNames, levels = order_plots)
+#Idents(CO.integrated) <- CO.integrated$CellTypeNames
+#orders your cell type names by the order you specified in order_plots
+levels(CO.integrated) <- order_plots # note this is ok to do for a Seurat object but not ok for levels in a factor in a column! As the latter will rename all your levels !!!
+```
+
+
+### Load the Differentially Expressed Markers
+```{r load markers}
+DE_CO <- fread(file = "../DE-CO_filter2_subsetted.txt", sep="\t", stringsAsFactors = FALSE)
+#Note that you'll get a warning because no column name for first column, how R fixes it (giving column name "V1" to first column is fine)
+```
+
+### Ok let's play
+```{r}
+# Check how many remaining cells you have
+table(CO.integrated$orig.ident)
+
+# How many umi/cell on average
+# Taken from: https://www.statology.org/r-mean-by-group/
+CO.integrated@meta.data %>%
+  group_by(orig.ident) %>%
+  summarise_at(vars(nCount_RNA), list(name = mean))
+
+# How many feature/cell on average
+CO.integrated@meta.data %>%
+  group_by(orig.ident) %>%
+  summarise_at(vars(nFeature_RNA), list(name = mean))
+
+# Ok remind me of our samples
+unique(CO.integrated@meta.data$orig.ident)
+
+# sample colours
+sample.colors <- c(CO_TX_skin = "#3333FF", CO_TA_skin = "#ffffb2", CO_TB_skin ="#fecc5c", CO_TC_skin = "#fd8d3c", CO_TD_skin = "#f03b20", CO_TE_skin = "#bd0026", CO_TX_PV_44 = "#3333FF", CO_TA_PV_45 = "#ffffb2", CO_TB_PV ="#fecc5c", CO_TC_PV = "#fd8d3c", CO_TD_PV = "#f03b20", CO_TE_PV = "#bd0026")
+
+#cluster colours
+colours_figs <- c("T_cells"  = "darkorchid4",
+               "Myeloid" = "magenta2",
+               "Dendritic_cells_5" = "orchid1",
+               "Neutrophil_cells_3" = "hotpink",
+               "Monocyte_9" = "darkmagenta",
+               "B_cells_10" = "mediumorchid",
+               "Intermediate_Keratinocytes" = "darkgoldenrod",
+               "Basal_Keratinocytes" = "darkgoldenrod4",
+               "Superficial_Keratinocytes" = "darkgoldenrod2",
+               "Fibroblast_1" = "chocolate3",
+               "Secretory" = "deepskyblue4",
+               "Endothelial" = "deepskyblue",
+               "Mucous_1" = "darkolivegreen",
+               "Mucous_2" = "darkolivegreen3",
+               "Osteoblasts" = "burlywood1",
+               "Red_Blood_Cell" = "firebrick1",
+               "Muscle_cells" = "darkred",
+               "Ltk_cells" = "lightblue3",
+               "Integument" = "aquamarine3",
+               "Neuronal_1" = "slateblue3",
+               "Neuronal_2" = "navy",
+               "Neuronal_3" = "cornflowerblue",
+               "Glial" = "thistle")
+
+cluster.sample.plot.labels <- c(
+  "CO_TX_skin" = "Coho_Control_skin",
+  "CO_TA_skin" = "Coho_12h_skin",
+  "CO_TB_skin" = "Coho_24h_skin",
+  "CO_TC_skin" = "Coho_36h_skin",
+  "CO_TD_skin" = "Coho_48h_skin",
+  "CO_TE_skin" = "Coho_60h_skin",
+  "CO_TX_PV_44" = "Coho_Control_fin",
+  "CO_TA_PV_45" = "Coho_12h_fin",
+  "CO_TB_PV" = "Coho_24h_fin",
+  "CO_TC_PV" = "Coho_36h_fin",
+  "CO_TD_PV" = "Coho_48h_fin",
+  "CO_TE_PV" = "Coho_60h_fin"
+)
+
+order_samples <-c(
+  "CO_TX_PV_44",
+  "CO_TX_skin",
+  "CO_TA_PV_45",
+  "CO_TA_skin",
+  "CO_TB_PV",
+  "CO_TB_skin",
+  "CO_TC_PV",
+  "CO_TC_skin",
+  "CO_TD_PV",
+  "CO_TD_skin",
+  "CO_TE_PV",
+  "CO_TE_skin"
+)
+
+#change order of orig.ident and make it a factor
+CO.integrated$orig.ident <- factor(CO.integrated$orig.ident, levels = order_samples)
+```
+
+```{r}
+# Plot number of UMIs per sample
+plotumispersample <- VlnPlot(object = CO.integrated, features = c("nCount_RNA"), group.by = "orig.ident", pt.size = 0) +
+  stat_summary(fun = "mean", #add horizontal bar with mean
+               geom = "crossbar",
+               width = 0.5,
+               colour = "black") +
+  scale_fill_manual(values=sample.colors) + #make nice colours
+  scale_x_discrete(labels = cluster.sample.plot.labels) + # make nice labels
+  theme(legend.position = "none") + # remove legend
+  labs(y = "Number of UMIs",
+       x = "Sample",
+       title = NULL) #remove default main title
+
+#Great now save this plot
+png("Samples_umis.png", res=600, width=4200, height=3200)
+plotumispersample
+dev.off()
+
+# Plot number of features per sample
+plotfeaturespersample <- VlnPlot(object = CO.integrated, features = c("nFeature_RNA"), group.by = "orig.ident", pt.size = 0) +
+  stat_summary(fun = "mean", #add horizontal bar with mean
+               geom = "crossbar",
+               width = 0.5,
+               colour = "black") +
+  scale_fill_manual(values=sample.colors) + #make nice colours
+  scale_x_discrete(labels = cluster.sample.plot.labels) + # make nice labels
+  theme(legend.position = "none") + # remove legend
+  labs(y = "Number of Features",
+       x = "Sample",
+       title = NULL) #remove default main title
+
+#Great now save this plot
+png("Samples_features.png", res=600, width=4200, height=3200)
+plotfeaturespersample
+dev.off()
+```
+
+```{r}
+#Generate a plot of the number of UMIs per cluster
+plotumispercluster <- VlnPlot(CO.integrated, features = 'nCount_RNA', pt = 0) + # don't show individual cells, pt = 0
+  stat_summary(fun = "mean", #add horizontal bar with mean
+               geom = "crossbar",
+               width = 0.5,
+               colour = "black") +
+  scale_fill_manual(values=colours_figs) + #make nice colours
+  scale_x_discrete(labels = cluster.id.plot.labels) + # make nice labels
+  theme(legend.position = "none") + # remove legend
+  labs(y = "Number of UMIs",
+       x = NULL,
+       title = NULL) #remove default main title
+
+VlnPlot(CO.integrated, features = 'nCount_RNA', pt = 0)
+
+#Great now save this plot
+png("Clusters_umis.png", res=600, width=4200, height=3200)
+plotumispercluster
+dev.off()
+
+#Generate a plot of the number of features per cluster
+plotfeaturespercluster <- VlnPlot(CO.integrated, features = 'nFeature_RNA', pt = 0) +# don't show individual cells, pt = 0
+  stat_summary(fun = "mean", #add horizontal bar with mean
+               geom = "crossbar",
+               width = 0.5,
+               colour = "black") +
+  scale_fill_manual(values=colours_figs) + #make nice colours
+  scale_x_discrete(labels = cluster.id.plot.labels) + # make nice labels
+  theme(legend.position = "none") + # remove legend
+  labs(y = "Number of Features",
+       x = NULL,
+       title = NULL) #remove default main title
+
+#Great now save this plot
+png("Clusters_features.png", res=600, width=4200, height=3200)
+plotfeaturespercluster
+dev.off()
+```
+
+```{r}
+#Ok so this only keep genes with an adjusted p-value less than 0.05 and then generates the top 20 genes for each cluster based on avg_log2FC
+markers <- DE_CO %>% dplyr::group_by(cluster) %>% filter(p_val_adj < 0.05) %>% top_n(n = 20, wt = avg_log2FC)
+#Ok please note that the first column is a duplicate of the gene column, but there's been a a digit added to the end of each repeated instance of each gene. So if "gene X" appears twice, the second time in the first column it will appear as "gene X2". This is irrelevant to us, so just delete this column.
+markers <- markers[,-1]
+#now make into a dataframe
+markers <- as.data.frame(markers)
+
+#write.csv(markers, "Top20Features.csv")
+
+# Now what I'd like to do is make a violin plot showing expression of these top 20 genes for each cluster in all clusters.
+
+#Ok so first let's find the name of all clusters:
+clusters <- unique(markers %>% dplyr::select(cluster) %>% pull(cluster))
+
+# We're going to save several plots in a list so generate an empty list
+plot_list_vln_cluster = list()
+
+library(gridExtra) # needed for grid.arrange
+library(grid) #needed for textGrob
+# for loop
+for (i in 1:length(clusters)) {
+  # make list of features to plot for each cluster
+  features <- markers %>% dplyr::filter(cluster == clusters[i]) %>% dplyr::select(gene) %>% pull(gene)
+
+  # now plot
+  pl1 <- VlnPlot(CO.integrated, features = features, pt.size = 0, assay = "SCT", slot = "data", combine = FALSE) # set pt.size to 0 to remove the points and just see the violins!
+  pl2 <- lapply( #https://github.com/satijalab/seurat/issues/1425
+    X = pl1,
+    FUN = function(p) p + ggplot2::scale_fill_manual(values=colours_figs) + #make nice colours
+    ggplot2::scale_x_discrete(labels = cluster.id.plot.labels) +# make nice labels
+      theme(legend.position = "none") + # remove legend
+    labs(y = NULL,
+         x = NULL) 
+    )
+  n <- length(pl2) #https://stackoverflow.com/questions/10706753/how-do-i-arrange-a-variable-list-of-plots-using-grid-arrange
+  nCol <- floor(sqrt(n))
+  #pl3 <- do.call("grid.arrange", c(pl2, ncol=nCol))
+  
+  ggsave(file = paste("Violin_plot_for_cluster_",clusters[i], ".png", sep=""),
+         height=24,
+         width=24,
+         units='in',
+         dpi=600, 
+         arrangeGrob(grobs = pl2, 
+                   ncol = nCol, 
+                   left=textGrob("Expression Level",
+                                     rot = 90,
+                                     gp = gpar(fontsize = 40))))  # add label on left
+                     
+  #https://stackoverflow.com/questions/39008773/ggplot-how-to-add-common-x-and-y-labels-to-a-grid-of-plots
+  #plot_list_vln_cluster[[i]] = pl3 #add the figure to the list
+}
+```
+```{r session info}
+sessionInfo()
+```
+

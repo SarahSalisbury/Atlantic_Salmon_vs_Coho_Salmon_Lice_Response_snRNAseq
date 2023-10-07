@@ -1,0 +1,161 @@
+---
+title: "Filter2 Immune Cells Only Recluster"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen=999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(ggplot2) # to make plots
+library(dplyr) # to manipulate data frames
+library(cowplot) # to arrange plots in a grid
+library(data.table) # to use %like%
+library(glmGamPoi) # helps to speed up SCTransform step
+library("DoubletFinder") # to detect doublets in our dataset
+```
+
+### Load Data
+
+```{r load rds}
+CO.integrated <- readRDS("../CO.integrated_filter2.rds")
+
+# Now please add PrepSCTFindMarkers() because this hasn't yet been run on the integrated seurat object
+CO.integrated <- PrepSCTFindMarkers(CO.integrated, assay = "SCT")
+```
+
+### Keep only immune cell types
+
+```{r remove bad clusters}
+# So we just want to look at the Myeloid and T-cell clusters (5, 6 respectively)
+CO.integrated <- subset(CO.integrated, idents = c(5,6), invert = FALSE) # we are just keeping clusters 5 and 6 (immune clusters).
+```
+
+### Set Default Assay
+
+```{r set default assay}
+# We're keeping the original Sctransform, so make the default the "integrated"
+DefaultAssay(CO.integrated) <- "integrated"
+```
+
+## Dimensionality reduction and clustering
+
+It's time to look for cell clusters again!
+
+We need to repeat the steps we did for each individual sample for the newly integrated dataset:
+1. Generate a PCA
+2. Select the best number of dimensions (PCs) to be used going forward by consulting an Elbowplot of PCs from PCA
+3. Generate a UMAP
+4. Cluster Cells
+
+
+
+```{r dimensionality reduction, message = FALSE}
+
+
+# 1. Linear dimension reduction
+CO.integrated <- RunPCA(CO.integrated, dims = 1:20) 
+```
+```{r dimensionality reduction visualization}
+#Examine and visualize PCA results
+
+# First print the five most informative features (nfeatures) for the first five PCA dimensions (PCs 1-5)
+print(CO.integrated[["pca"]], dims = 1:5, nfeatures = 5)
+
+# Now visualize the loadings for PCs 1 and 2 
+VizDimLoadings(CO.integrated, dims = 1:2, reduction = "pca")
+
+# Now visualize the first two axes of the PCA
+DimPlot(CO.integrated, reduction = "pca", group.by = "orig.ident")
+
+# Now visualize using a heatmap
+# Note that cells and features are ordered by PCA scores.
+# You can set "cells" to a value to show the most informative cells to a particular PC axis (speeds up plot generation considerably when this number is low)
+# Run for the first PC now
+DimHeatmap(CO.integrated, dims = 1, cells = 500, balanced = TRUE) # balanced = TRUE means you should plot an equal number of genes with both + and - scores, cells = 500 means plot the top 500 cells for this dimension
+
+# Now repeat heatmaps for first 5 PCs
+DimHeatmap(CO.integrated, dims = 1:5, cells = 500, balanced = TRUE)
+
+# 2. Check how many PCs you need with an Elbowplot
+ElbowPlot(CO.integrated, ndim = 20)
+#So probably 15 PCs is ok
+
+# 3. Make a UMAP
+# use the number of dimensions as determined from Elbowplot
+CO.integrated <- RunUMAP(CO.integrated, dims = 1:15, verbose = FALSE)
+
+# Have a look at the UMAP
+DimPlot(CO.integrated, reduction = "umap", group.by = "orig.ident")
+
+# 4. Cluster cells
+
+# First thing to do is to calculate the neighbourhood overlap (Jaccard index) between every cell and its k.param nearest neighbors (https://satijalab.org/seurat/reference/findneighbors)
+# use the same number of dimensions as used for UMAP
+CO.integrated <- FindNeighbors(CO.integrated, dims = 1:15)
+
+# Now we use that neighbourhood information to figure out which cells belong together in a cluster. The resolution parameter sets the "granularity" of the clustering, so higher values will give you more clusters. This seems like a bit of a dark art. https://satijalab.org/seurat/articles/pbmc3k_tutorial.html
+CO.integrated <- FindClusters(CO.integrated, resolution = 0.4) ###Potentially play with "resolution = 0.5"
+```
+```{r plot UMAPs, message = FALSE}
+#You can save the object at this point so that it can easily be loaded back in without having to rerun the computationally intensive steps performed above, or easily shared with collaborators.
+saveRDS(CO.integrated, file = "CO.integrated_filter1_immuneonly.rds")
+
+# Now to plot the UMAP
+# note that you can set `label = TRUE` or use the LabelClusters function to help label individual clusters
+
+# Plot UMAP with clusters in a legend
+png("UMAP_clusters_filter1.png", res=600, width=4200, height=3200)
+DimPlot(CO.integrated , reduction = "umap", pt.size = 0.1)
+dev.off()
+
+# Plot UMAP with clusters labeled on the plot
+png("UMAP_clusters_names_on_cells_filter2_immune.png", res=600, width=4200, height=3200)
+DimPlot(CO.integrated, reduction = "umap", label = TRUE, pt.size = 0.1) + NoLegend()
+dev.off()
+
+# Plot UMAP with cells coloured by sample origin
+png("UMAP_origin_filter2_immune.png", res=600, width=4200, height=3200)
+DimPlot(CO.integrated, group.by = "orig.ident", pt.size = 0.1)
+dev.off()
+
+# Plot UMAP with clusters in a legend for each sample
+png("UMAP_clusters_separated_origin_filter2_immune.png", res=600, width=6200, height=3200)
+DimPlot(CO.integrated, reduction = "umap", split.by = "orig.ident", pt.size = 0.1)
+dev.off()
+
+# Plot UMAP with clusters labeled on the plot for each sample
+png("UMAP_clusters_separated_origin_names_on_cells_filter2_immune.png", res=600, width=6200, height=3200)
+DimPlot(CO.integrated, reduction = "umap", split.by = "orig.ident", label = TRUE, pt.size = 0.1) + NoLegend()
+dev.off()
+
+# Plot UMAP with cells coloured by cell cycle stage
+png("UMAP_cellcycle_filter2_immune.png", res=600, width=4200, height=3200)
+DimPlot(CO.integrated, group.by = "Phase", pt.size = 0.1)
+dev.off()
+```
+
+```{r session info}
+sessionInfo()
+```
+
+

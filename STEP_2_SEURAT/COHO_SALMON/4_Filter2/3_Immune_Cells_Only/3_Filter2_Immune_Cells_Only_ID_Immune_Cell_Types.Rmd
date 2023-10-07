@@ -1,0 +1,137 @@
+---
+title: "Filter2 Immune Cells Only ID Immune Cell Types"
+author: "Sarah Salisbury"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+---
+
+# Getting Your Data
+
+## Setting up R Environment
+
+### Setup
+```{r setup}
+# Prevent scientific notation output (e.g., we don't want very small p-values to be output as say 10^-9)
+options(scipen = 999)
+#set seed for reproducibility
+set.seed(42) #note that UMAPs use seed of 42, not sure if setting seed here overrides this.
+```
+
+### Load Packages
+
+Now load up all of the packages you'll need for this analysis
+
+```{r load packages}
+# Load up libraries
+library(Seurat) # to run single cell analyses
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(cowplot)
+library(patchwork)
+```
+
+### Load the Seurat object
+```{r load Seurat object}
+CO.integrated <- readRDS("CO.integrated_filter1_immuneonly.rds")
+```
+
+### Set Default Assay
+
+```{r set default assay}
+# For performing differential expression after integration, we switch back to the SCT data
+# https://github.com/satijalab/seurat/issues/1534
+# https://satijalab.org/seurat/articles/integration_introduction.html
+DefaultAssay(CO.integrated) <- "SCT"
+```
+
+### See which cells are Dendritic, Neutrophils, Myeloid, T cells
+
+```{r Dotlot to determine cell types}
+#CD45 - ptprc - all immune
+FeaturePlot(CO.integrated, features = c("gene:ENSOKIG00005033623"))
+DotPlot(CO.integrated, features = c("gene:ENSOKIG00005033623"))
+
+#CD3 - all T cells
+FeaturePlot(CO.integrated, features = c("gene:ENSOKIG00005039268", "gene:ENSOKIG00005016781"))
+DotPlot(CO.integrated, features = c("gene:ENSOKIG00005039268", "gene:ENSOKIG00005016781"))
+# 0, 4, 6, 8, not really in 7 though, but 7 expressed the other paralog interestingly!
+
+#CD4 - T helper cells
+FeaturePlot(CO.integrated, features = c("cd4-1.1", "cd4-1", "gene:ENSOKIG00005004157"))
+DotPlot(CO.integrated, features = c("cd4-1.1", "cd4-1", "gene:ENSOKIG00005004157"))
+# 1 expresses CD4 (myeloid)
+# 0 expresses other paralogs of CD4 - T-cells
+
+# CD8 - cytotoxic T-cells
+FeaturePlot(CO.integrated, features = c("cd8b", "gene:ENSOKIG00005025119", "cd8b.1"))
+DotPlot(CO.integrated, features = c("cd8b", "gene:ENSOKIG00005025119", "cd8b.1"))
+# 0, 6, and 8 express CD8
+
+#So 0 is CD4+ and CD8+
+#6 and 8 are CD8+
+
+#Ok so 
+# 0 is a T-cell and expresses SKAP1
+
+#1 is myeloid and expresses csf1ra
+
+#2 is myeloid but no discerning features from 1 see csf3r
+
+#3 is neutrophils expressing clec4e: gene:ENSOKIG00005020977
+
+#4 is a T-cell but undistinguishable see RPL37A
+
+#5 is DCs flt3
+
+#6 is T-cell but I don't think has any biologically relevant distinguishing features among only 16 marker genes (e.g. sema6e)
+
+#7 is T-cell expressing gata3
+
+#8 is T-cell expressing a different paralog of stat1?
+
+#9 is monocyte expressing ckb
+
+#10 is B cells expressing EBF1
+
+DotPlot(CO.integrated, features = c("skap1.1", "csf1ra", "csf3r", "gene:ENSOKIG00005020977", "RPL37A", "flt3", "sema6e", "gata3", "STAT1.1", "ckb", "EBF1.2"))
+```
+
+### Get Cell Names for Each Cluster
+
+```{r Get lists of cells}
+# I'm going to get a list of cell IDs belonging to each cluster, so I can apply these new cell IDs to our UMAP with all samples
+
+# how many cells in each cell type?
+CO.integrated[[]] %>% group_by(integrated_snn_res.0.4) %>% count()
+
+new.cluster.ids <- c("0" = "T_cells_skap1_0",
+                 "1" = "Myeloid_csf1ra_1",
+                 "2" = "Myeloid_2",
+                 "3" = "Neutrophil_cells_3", 
+                 "4" = "T_cells_4",
+                 "5" = "Dendritic_cells_5",
+                 "6" = "T_cells_sema6e_6",
+                 "7" = "T_cells_gata3_7",
+                 "8" = "T_cells_STAT1_8",
+                 "9" = "Monocyte_9",
+                 "10" = "B_cells_10"
+)
+#https://github.com/satijalab/seurat/issues/3500
+CO.integrated <- RenameIdents(CO.integrated, new.cluster.ids)
+CO.integrated$CellTypeNames <- Idents(CO.integrated) # save in metadata
+
+df_new_names <- CO.integrated[[]] %>% select(CellTypeNames) # make dataframe with just new cell type names and cell ids as rownames
+df_new_names <- cbind(rownames(df_new_names), data.frame(df_new_names, row.names=NULL)) # set rownames to column https://stackoverflow.com/questions/29511215/convert-row-names-into-first-column
+names(df_new_names)[1] <- "Cell" # set first column name to "Cell"
+
+#write out list
+write.csv(df_new_names, "List_immune_IDs.csv")
+```
+
+
+```{r session info}
+sessionInfo()
+```
