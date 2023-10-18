@@ -2,7 +2,7 @@
 
 **By Sarah Salisbury**
 
-&#x1F4D8; This repository contains the scripts used to analyze snRNAseq libraries generated from skin and fin samples from Atlantic Salmon (_Salmo salar_) and Coho Salmon (_Oncorhynchus kisutch_) for the manuscript titled "Keratinocytes Drive the Epithelial Hyperplasia key to Sea Lice Resistance in Coho Salmon".
+&#x1F4D8; This repository contains the scripts used to analyze snRNAseq libraries generated from skin and fin samples from Atlantic Salmon (_Salmo salar_) and Coho Salmon (_Oncorhynchus kisutch_) for the manuscript titled "Keratinocytes Drive the Epithelial Hyperplasia Key to Sea Lice Resistance in Coho Salmon".
 
 Read the preprint here: https://www.biorxiv.org/content/10.1101/2023.10.15.562030v1
 
