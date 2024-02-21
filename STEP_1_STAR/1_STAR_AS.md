@@ -7,7 +7,7 @@ Download the ENSEMBL version of the V3 genome.
 
 Download the fasta file (Salmo_salar.Ssal_v3.1.dna_rm.toplevel.fa.gz) and checksums (CHECKSUMS) from http://ftp.ensembl.org/pub/release-106/fasta/salmo_salar/dna/.
 
-Download the gtf file (Salmo_salar.Ssal_v3.1.106.gff3.gz) and checksums (CHECKSUMS) from http://ftp.ensembl.org/pub/release-106/gff3/salmo_salar/.
+Download the gff file (Salmo_salar.Ssal_v3.1.106.gff3.gz) and checksums (CHECKSUMS) from http://ftp.ensembl.org/pub/release-106/gff3/salmo_salar/.
 
 Gunzip the files
 ```
