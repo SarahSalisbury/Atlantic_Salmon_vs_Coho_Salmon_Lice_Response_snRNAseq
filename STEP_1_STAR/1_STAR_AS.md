@@ -152,7 +152,9 @@ mkdir star_genome_index
 STAR --limitGenomeGenerateRAM 586158178570 --runThreadN 10 --runMode genomeGenerate --genomeDir star_genome_index --genomeFastaFiles Salmo_salar.Ssal_v3.1.dna_rm.toplevel_MT.fna --sjdbGTFfile Salmo_salar.Ssal_v3.1.106_MT.gtf
 ```
 NOTES:
+
 ```--limitGenomeGenerateRAM``` indicates total amount of RAM STAR can use
+
 ```--runThreadN``` option tells you how many threads to have
 
 ```--runMode``` genomeGenerate option directs STAR to run genome indices generation job
