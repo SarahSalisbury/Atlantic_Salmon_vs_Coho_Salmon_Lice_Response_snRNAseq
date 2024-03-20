@@ -203,7 +203,7 @@ NOTES:
 
 ```--outFilterMultimapScoreRange 1``` integer: the score range below the maximum score for multimapping alignments, default is 1
 
-```--outFilterMultimapNmax 2``` int: maximum number of loci the read is allowed to map to. Alignments (all of them) will be output only if the read maps to no more loci than this value. Otherwise no alignments will be output, and the read will be counted as ”mapped to too many loci” in the Log.final.out. Default is 10
+```--outFilterMultimapNmax 10``` int: maximum number of loci the read is allowed to map to. Alignments (all of them) will be output only if the read maps to no more loci than this value. Otherwise no alignments will be output, and the read will be counted as ”mapped to too many loci” in the Log.final.out. Default is 10
 
 ```--outFilterMismatchNmax 10``` integer: alignment will be output only if it has no more mismatches than this value. Default is 10
 
