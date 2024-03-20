@@ -223,7 +223,9 @@ mkdir star_genome_index
 STAR --limitGenomeGenerateRAM 1200000000000 --runThreadN 10 --runMode genomeGenerate --genomeDir star_genome_index_moremem --genomeFastaFiles Oncorhynchus_kisutch.Okis_V2.dna_rm.toplevel_MT.fa --sjdbGTFfile Oncorhynchus_kisutch.Okis_V2.106_MT.gtf
 ```
 NOTES:
+
 ```--limitGenomeGenerateRAM``` option indicates total amount of RAM STAR can use
+
 ```--runThreadN``` option tells you how many threads to have
 
 ```--runMode``` genomeGenerate option directs STAR to run genome indices generation job
