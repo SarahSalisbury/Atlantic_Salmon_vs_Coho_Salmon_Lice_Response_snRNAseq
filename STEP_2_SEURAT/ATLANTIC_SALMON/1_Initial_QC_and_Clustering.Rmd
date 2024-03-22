@@ -963,7 +963,7 @@ rm(list=setdiff(ls(), "AS.list_NoDoublets"))
 Now that we've removed doublets we're going to integrate all of the samples together into a single dataset.
 ```{r Integrated feature selection, message = FALSE}
 # select features that are repeatedly variable across datasets for integration
-# note that nfeatures tells you how many features to include in analysis (default is 50000)
+# note that nfeatures tells you how many features to include in analysis (default is 2000)
 # note also that we need to specify we used SCT as our normalization method
 features <- SelectIntegrationFeatures(object.list = AS.list_NoDoublets, nfeatures = 5000, normalization.method = "SCT")
 ```
