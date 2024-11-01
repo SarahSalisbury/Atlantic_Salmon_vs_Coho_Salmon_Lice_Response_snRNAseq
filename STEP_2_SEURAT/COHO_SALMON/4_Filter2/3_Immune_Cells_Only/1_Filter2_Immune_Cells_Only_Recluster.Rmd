@@ -73,7 +73,7 @@ We need to repeat the steps we did for each individual sample for the newly inte
 
 
 # 1. Linear dimension reduction
-CO.integrated <- RunPCA(CO.integrated, dims = 1:20) 
+CO.integrated <- RunPCA(CO.integrated, dims = 1:20) # Please note, "dims" is not a valid argument for RunPCA, therefore the default 50 PCs were generated here in contrast to what was reported in the "Sub-Clustering" section of the Methods in the manuscript.
 ```
 ```{r dimensionality reduction visualization}
 #Examine and visualize PCA results
